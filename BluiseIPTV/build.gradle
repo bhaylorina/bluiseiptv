@@ -1,0 +1,17 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://storage.googleapis.com/r8-releases/raw" }
+    }
+    dependencies {
+        // ✅ March 2026 Stable Combo
+        classpath 'com.android.tools.build:gradle:8.8.0' 
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.0'
+        // 🚀 THE MANUAL R8 INJECTION (Termux ko chup karane ke liye)
+        classpath 'com.android.tools:r8:9.1.29'
+    }
+}
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

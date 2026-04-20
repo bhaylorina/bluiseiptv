@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="15dp"
+    android:gravity="center_vertical"
+    android:background="?android:attr/selectableItemBackground">
+
+    <RadioButton
+        android:id="@+id/rbTrack"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:clickable="false"
+        android:focusable="false"
+        android:buttonTint="#FF0000"/>
+
+    <TextView
+        android:id="@+id/tvTrackName"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Track Name"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:layout_marginLeft="10dp"/>
+
+</LinearLayout>

@@ -1,0 +1,177 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.bluise.iptv.new"
+4    android:versionCode="2"
+5    android:versionName="2.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="24"
+9        android:targetSdkVersion="35" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:5:5-67
+11-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:5:22-64
+12    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+12-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:6:5-77
+12-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:6:22-74
+13    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+13-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:7:5-79
+13-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:7:22-76
+14    <uses-permission android:name="android.permission.WAKE_LOCK" />
+14-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:8:5-68
+14-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:8:22-65
+15
+16    <uses-feature
+16-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:10:5-87
+17        android:name="android.software.leanback"
+17-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:10:19-59
+18        android:required="false" />
+18-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:10:60-84
+19    <uses-feature
+19-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:11:5-90
+20        android:name="android.hardware.touchscreen"
+20-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:11:19-62
+21        android:required="false" />
+21-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:11:63-87
+22
+23    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+23-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:12:1-76
+23-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:12:18-73
+24
+25    <permission
+25-->[androidx.core:core:1.15.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/c44f2396135461b668d6887625008c1e/transformed/core-1.15.0/AndroidManifest.xml:22:5-24:47
+26        android:name="com.bluise.iptv.new.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+26-->[androidx.core:core:1.15.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/c44f2396135461b668d6887625008c1e/transformed/core-1.15.0/AndroidManifest.xml:23:9-81
+27        android:protectionLevel="signature" />
+27-->[androidx.core:core:1.15.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/c44f2396135461b668d6887625008c1e/transformed/core-1.15.0/AndroidManifest.xml:24:9-44
+28
+29    <uses-permission android:name="com.bluise.iptv.new.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+29-->[androidx.core:core:1.15.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/c44f2396135461b668d6887625008c1e/transformed/core-1.15.0/AndroidManifest.xml:26:5-97
+29-->[androidx.core:core:1.15.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/c44f2396135461b668d6887625008c1e/transformed/core-1.15.0/AndroidManifest.xml:26:22-94
+30
+31    <application
+31-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:14:5-45:19
+32        android:allowBackup="true"
+32-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:15:9-35
+33        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+33-->[androidx.core:core:1.15.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/c44f2396135461b668d6887625008c1e/transformed/core-1.15.0/AndroidManifest.xml:28:18-86
+34        android:dataExtractionRules="@xml/data_extraction_rules"
+34-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:16:9-65
+35        android:extractNativeLibs="false"
+36        android:fullBackupContent="@xml/backup_rules"
+36-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:17:9-54
+37        android:icon="@mipmap/ic_launcher"
+37-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:18:9-43
+38        android:label="@string/app_name"
+38-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:19:9-41
+39        android:networkSecurityConfig="@xml/network_security_config"
+39-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:23:9-69
+40        android:roundIcon="@mipmap/ic_launcher_round"
+40-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:20:9-54
+41        android:supportsRtl="true"
+41-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:21:9-35
+42        android:theme="@style/Theme.BluiseIPTV"
+42-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:22:9-48
+43        android:usesCleartextTraffic="true" >
+43-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:24:9-44
+44        <activity
+44-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:27:9-39:20
+45            android:name="com.bluise.iptv.MainActivity"
+45-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:28:13-41
+46            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+46-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:30:13-106
+47            android:exported="true"
+47-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:31:13-36
+48            android:supportsPictureInPicture="true"
+48-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:29:13-52
+49            android:theme="@style/Theme.BluiseIPTV" >
+49-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:32:13-52
+50            <intent-filter>
+50-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:33:13-38:29
+51                <action android:name="android.intent.action.MAIN" />
+51-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:34:17-69
+51-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:34:25-66
+52
+53                <category android:name="android.intent.category.LAUNCHER" />
+53-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:35:17-77
+53-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:35:27-74
+54                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+54-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:37:17-86
+54-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:37:27-83
+55            </intent-filter>
+56        </activity>
+57        <activity
+57-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:41:9-43:66
+58            android:name="com.bluise.iptv.SettingsActivity"
+58-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:42:13-45
+59            android:theme="@style/Theme.AppCompat.NoActionBar" />
+59-->/data/data/com.termux/files/home/BluiseIPTV/app/src/main/AndroidManifest.xml:43:13-63
+60
+61        <provider
+61-->[androidx.emoji2:emoji2:1.3.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/52c571ee9cd99283e5d00368a0331d25/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:24:9-32:20
+62            android:name="androidx.startup.InitializationProvider"
+62-->[androidx.emoji2:emoji2:1.3.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/52c571ee9cd99283e5d00368a0331d25/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:25:13-67
+63            android:authorities="com.bluise.iptv.new.androidx-startup"
+63-->[androidx.emoji2:emoji2:1.3.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/52c571ee9cd99283e5d00368a0331d25/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:26:13-68
+64            android:exported="false" >
+64-->[androidx.emoji2:emoji2:1.3.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/52c571ee9cd99283e5d00368a0331d25/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:27:13-37
+65            <meta-data
+65-->[androidx.emoji2:emoji2:1.3.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/52c571ee9cd99283e5d00368a0331d25/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:29:13-31:52
+66                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+66-->[androidx.emoji2:emoji2:1.3.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/52c571ee9cd99283e5d00368a0331d25/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:30:17-75
+67                android:value="androidx.startup" />
+67-->[androidx.emoji2:emoji2:1.3.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/52c571ee9cd99283e5d00368a0331d25/transformed/jetified-emoji2-1.3.0/AndroidManifest.xml:31:17-49
+68            <meta-data
+68-->[androidx.lifecycle:lifecycle-process:2.6.2] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/1f717f646382ec4f2bdc7fdf5018b4c6/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:29:13-31:52
+69                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+69-->[androidx.lifecycle:lifecycle-process:2.6.2] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/1f717f646382ec4f2bdc7fdf5018b4c6/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:30:17-78
+70                android:value="androidx.startup" />
+70-->[androidx.lifecycle:lifecycle-process:2.6.2] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/1f717f646382ec4f2bdc7fdf5018b4c6/transformed/jetified-lifecycle-process-2.6.2/AndroidManifest.xml:31:17-49
+71            <meta-data
+71-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:29:13-31:52
+72                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+72-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:30:17-85
+73                android:value="androidx.startup" />
+73-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:31:17-49
+74        </provider>
+75
+76        <receiver
+76-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:34:9-52:20
+77            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+77-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:35:13-76
+78            android:directBootAware="false"
+78-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:36:13-44
+79            android:enabled="true"
+79-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:37:13-35
+80            android:exported="true"
+80-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:38:13-36
+81            android:permission="android.permission.DUMP" >
+81-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:39:13-57
+82            <intent-filter>
+82-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:40:13-42:29
+83                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+83-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:41:17-91
+83-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:41:25-88
+84            </intent-filter>
+85            <intent-filter>
+85-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:43:13-45:29
+86                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+86-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:44:17-85
+86-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:44:25-82
+87            </intent-filter>
+88            <intent-filter>
+88-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:46:13-48:29
+89                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+89-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:47:17-88
+89-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:47:25-85
+90            </intent-filter>
+91            <intent-filter>
+91-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:49:13-51:29
+92                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+92-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:50:17-95
+92-->[androidx.profileinstaller:profileinstaller:1.4.0] /data/data/com.termux/files/home/.gradle/caches/8.12/transforms/09251bc1e20dcb70b7751fc1e4c57115/transformed/jetified-profileinstaller-1.4.0/AndroidManifest.xml:50:25-92
+93            </intent-filter>
+94        </receiver>
+95    </application>
+96
+97</manifest>
