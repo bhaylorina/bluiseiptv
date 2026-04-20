@@ -9,6 +9,8 @@ import androidx.media3.common.*
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.*
 import androidx.media3.exoplayer.drm.*
+import okhttp3.RequestBody
+import java.io.IOException
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -369,18 +371,48 @@ class PlayerEngine {
                 drmConfigurationBuilder = MediaItem.DrmConfiguration.Builder(C.CLEARKEY_UUID)
             } 
             else if (channel.drmLicenseUrl != null) {
-                val callback = HttpMediaDrmCallback(channel.drmLicenseUrl, httpFactory)
-                headers.forEach { (k, v) -> callback.setKeyRequestProperty(k, v) }
-                val isClearKey = channel.drmLicenseUrl!!.contains("clearkey", true)
+                val isClearKey = channel.drmScheme?.equals("clearkey", true) == true || channel.drmLicenseUrl!!.contains("clearkey", true) || channel.drmLicenseUrl!!.contains("key.php", true)
 
                 if (isClearKey) {
-                    callback.setKeyRequestProperty("Content-Type", "application/json")
+                    val callback = object : MediaDrmCallback {
+                        override fun executeProvisionRequest(uuid: UUID, request: ExoMediaDrm.ProvisionRequest): MediaDrmCallback.Response {
+                            return MediaDrmCallback.Response(ByteArray(0))
+                        }
+
+                        override fun executeKeyRequest(uuid: UUID, request: ExoMediaDrm.KeyRequest): MediaDrmCallback.Response {
+                            val req = Request.Builder()
+                                .url(channel.drmLicenseUrl!!)
+                                .addHeader("User-Agent", userAgent)
+                                .addHeader("Content-Type", "application/json")
+                                .post(okhttp3.RequestBody.create(null, request.data))
+                                .build()
+                            
+                            if (!channel.cookie.isNullOrEmpty()) {
+                                req.addHeader("Cookie", channel.cookie)
+                            }
+
+                            val resp = okHttpClient.newCall(req).execute()
+                            val body = resp.body?.string() ?: throw IOException("Empty license response")
+                            resp.close()
+
+                            // If response is already JSON with keys
+                            if (body.contains("\"keys\"")) {
+                                return MediaDrmCallback.Response(body.toByteArray(Charsets.UTF_8))
+                            }
+                            
+                            // If response is hex/base64 key-id pair, convert it
+                            // Assuming format: kid:key or raw hex
+                            throw IOException("Unsupported ClearKey response format: $body")
+                        }
+                    }
                     drmSessionManager = DefaultDrmSessionManager.Builder()
                         .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
                         .setMultiSession(true)
                         .build(callback)
                     drmConfigurationBuilder = MediaItem.DrmConfiguration.Builder(C.CLEARKEY_UUID)
                 } else {
+                    val callback = HttpMediaDrmCallback(channel.drmLicenseUrl, httpFactory)
+                    headers.forEach { (k, v) -> callback.setKeyRequestProperty(k, v) }
                     drmSessionManager = DefaultDrmSessionManager.Builder()
                         .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
                         .setMultiSession(true)
