@@ -20,6 +20,7 @@ import android.util.Rational
 import android.view.*
 import android.widget.*
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -82,6 +83,10 @@ class MainActivity : AppCompatActivity() {
 
     var player: ExoPlayer? = null
     var lastPlayedIndex = -1
+    
+    // 🔥 NEW: Explicitly track the currently playing channel to fix Next/Prev bug
+    var currentPlayingChannel: Channel? = null
+
     val playlists = ArrayList<String>()
     val displayPlaylists = ArrayList<String>()
     val channels = ArrayList<Channel>()
@@ -130,7 +135,6 @@ class MainActivity : AppCompatActivity() {
     val hideControlsRunnable = Runnable {
         controlsContainer?.visibility = View.GONE
         debugText?.visibility = View.GONE
-        // Stop seekbar updates when controls hide � CPU saver
         updateSeekRunnable?.let { handler.removeCallbacks(it) }
     }
 
@@ -140,20 +144,16 @@ class MainActivity : AppCompatActivity() {
     val executor = Executors.newFixedThreadPool(4)
     private var currentLoadTask: Future<*>? = null
 
-    // Track the background reload thread so we can interrupt it
     private var reloadThread: Thread? = null
     private val isReloading = AtomicBoolean(false)
-
-    // Retry runnable stored so it can be cancelled on channel switch
     private var retryRunnable: Runnable? = null
 
-    // File Picker Variables
     var dialogNameInput: EditText? = null
     var dialogUrlInput: EditText? = null
 
     private val filePickerLauncher =
         registerForActivityResult(
-            androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+            ActivityResultContracts.OpenDocument()
         ) { uri ->
             if (uri != null) {
                 dialogUrlInput?.setText(uri.toString())
@@ -184,9 +184,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Load proxy state on start
-        // FIX #19: Use separate variable names to avoid shadowing
         val settingsPrefs = getSharedPreferences("iptv_settings", Context.MODE_PRIVATE)
         PlayerEngine.isProxyEnabled = settingsPrefs.getBoolean("vps_proxy_enabled", true)
 
@@ -216,7 +213,6 @@ class MainActivity : AppCompatActivity() {
             setContentView(R.layout.activity_main)
             supportActionBar?.hide()
 
-            // FIX #19: Separate prefs variable name for categories
             val categoryPrefs = getSharedPreferences("iptv_categories", Context.MODE_PRIVATE)
             categoryMaps.keys.forEach { cat ->
                 val orderedJson = categoryPrefs.getString(cat + "_ordered", null)
@@ -239,6 +235,14 @@ class MainActivity : AppCompatActivity() {
             forceReloadAllPlaylists()
             setupGestures()
         } catch (e: Throwable) {}
+    }
+
+    // 🔥 NEW: Handle explicit app stopping to prevent ghost audio
+    override fun onStop() {
+        super.onStop()
+        // Kills the background playback when PiP window is dismissed or Screen locks
+        player?.pause()
+        btnPlay?.text = " "
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -273,7 +277,6 @@ class MainActivity : AppCompatActivity() {
     private fun forceReloadAllPlaylists() {
         if (playlists.isEmpty()) return
 
-        // FIX #7: Cancel previous reload thread if running
         if (isReloading.get()) {
             reloadThread?.interrupt()
         }
@@ -297,12 +300,10 @@ class MainActivity : AppCompatActivity() {
                             val inputStream =
                                 contentResolver.openInputStream(uri)
                                     ?: throw Exception("Cannot open file")
-                            // FIX #11: Use try-with-resources to ensure stream closes
                             inputStream.use { IptvParser().parse(it) }
                         } else {
                             val request =
                                 okhttp3.Request.Builder().url(urlStr).build()
-                            // FIX #11: Properly close response after reading
                             val response =
                                 PlayerEngine.okHttpClient.newCall(request).execute()
                             response.use { resp ->
@@ -331,7 +332,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // FIX #7: Store thread reference so it can be interrupted on recreation
         reloadThread = Thread {
             isReloading.set(true)
             try {
@@ -350,7 +350,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             } catch (e: InterruptedException) {
-                // Thread was interrupted � activity recreated, discard results safely
             } catch (e: Exception) {
                 runOnUiThread { isProcessing = false }
             } finally {
@@ -475,7 +474,6 @@ class MainActivity : AppCompatActivity() {
             playerContainer?.layoutParams?.height = ViewGroup.LayoutParams.MATCH_PARENT
             updatePlayerMargins(true)
             supportActionBar?.hide()
-            // FIX #20: Centralized settings button hide
             updateSettingsButtonVisibility()
         } else {
             if (!isFullscreen) {
@@ -487,27 +485,25 @@ class MainActivity : AppCompatActivity() {
                 playlistListView?.visibility = View.VISIBLE
                 updatePlayerMargins(false)
                 showSystemUI()
-                // FIX #20: Centralized settings button visibility
                 updateSettingsButtonVisibility()
             }
             showControls()
         }
     }
 
-    // FIX #20: Single source of truth for settings button visibility
     private fun updateSettingsButtonVisibility() {
-    val isInPiP = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        isInPictureInPictureMode
-    } else false
+        val isInPiP = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            isInPictureInPictureMode
+        } else false
 
-    btnSettings?.visibility = when {
-        isInPiP -> View.GONE
-        isFullscreen -> View.GONE
-        flipper?.displayedChild == 1 -> View.GONE  // Channel screen � always hide
-        flipper?.displayedChild == 0 -> View.VISIBLE // Playlist main screen only
-        else -> View.GONE
+        btnSettings?.visibility = when {
+            isInPiP -> View.GONE
+            isFullscreen -> View.GONE
+            flipper?.displayedChild == 1 -> View.GONE  
+            flipper?.displayedChild == 0 -> View.VISIBLE 
+            else -> View.GONE
+        }
     }
-}
 
     private fun hideSystemUI() {
         WindowCompat.getInsetsController(window, window.decorView).let { controller ->
@@ -638,10 +634,8 @@ class MainActivity : AppCompatActivity() {
             }
         )
 
-        // FIX #15: Seekbar runnable guards against null player and duplicate instances
         updateSeekRunnable = object : Runnable {
             override fun run() {
-                // Only run if player is alive and controls are visible
                 val p = player
                 if (p != null && controlsContainer?.visibility == View.VISIBLE) {
                     val duration = p.duration
@@ -659,11 +653,9 @@ class MainActivity : AppCompatActivity() {
                         tvTotalDuration?.text = "00:00"
                         tvCurrentTime?.text = "00:00"
                     }
-                    // Only re-post if still needed � prevents duplicate runnable stacking
                     handler.removeCallbacks(this)
                     handler.postDelayed(this, 1000)
                 }
-                // If player is null or controls hidden, runnable stops itself automatically
             }
         }
 
@@ -769,19 +761,9 @@ class MainActivity : AppCompatActivity() {
 
         searchBar?.addTextChangedListener(
             object : TextWatcher {
-                override fun beforeTextChanged(
-                    s: CharSequence?,
-                    start: Int,
-                    count: Int,
-                    after: Int
-                ) {}
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
-                override fun onTextChanged(
-                    s: CharSequence?,
-                    start: Int,
-                    before: Int,
-                    count: Int
-                ) {
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     if (isGroupView && s.toString().isNotEmpty()) {
                         showAllChannels()
                     }
@@ -810,13 +792,11 @@ class MainActivity : AppCompatActivity() {
                             flipper?.displayedChild = 0
                             supportActionBar?.hide()
                             showSystemUI()
-                            // FIX #9: Clear search AND re-filter so list resets properly
                             searchBar?.setText("")
                             filterChannels("")
                             isShowingFavorites = false
                             currentCategory = null
                             isProcessing = false
-                            // FIX #20: Use centralized visibility function
                             updateSettingsButtonVisibility()
 
                             if (TvManager.isTvMode) {
@@ -846,7 +826,7 @@ class MainActivity : AppCompatActivity() {
             if (player != null) {
                 if (player!!.isPlaying) {
                     player!!.pause()
-                    btnPlay?.text = ""
+                    btnPlay?.text = " "
                 } else {
                     player!!.play()
                     btnPlay?.text = "||"
@@ -933,11 +913,7 @@ class MainActivity : AppCompatActivity() {
         val groupAdapter =
             object :
                 ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, groupList) {
-                override fun getView(
-                    position: Int,
-                    convertView: View?,
-                    parent: ViewGroup
-                ): View {
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                     val view = super.getView(position, convertView, parent) as TextView
                     view.text = "\uD83D\uDCC1  " + getItem(position)
                     view.setTextColor(Color.WHITE)
@@ -974,8 +950,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openCategory(catName: String) {
-        // FIX #12: isProcessing guard is meaningful here only for background reload
-        // openCategory itself is sync so we don't set/unset isProcessing for it
         currentCategory = catName
         isShowingFavorites = true
 
@@ -983,7 +957,6 @@ class MainActivity : AppCompatActivity() {
             playerContainer?.visibility = View.GONE
         }
 
-        // FIX #20: Centralized button visibility
         updateSettingsButtonVisibility()
         findViewById<View>(R.id.groupFilterBar)?.visibility = View.GONE
 
@@ -1186,13 +1159,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         val adapter =
-            object :
-                ArrayAdapter<String>(this, R.layout.item_track, R.id.tvTrackName, groupList) {
-                override fun getView(
-                    position: Int,
-                    convertView: View?,
-                    parent: ViewGroup
-                ): View {
+            object : ArrayAdapter<String>(this, R.layout.item_track, R.id.tvTrackName, groupList) {
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                     val view = super.getView(position, convertView, parent)
                     val rb = view.findViewById<RadioButton>(R.id.rbTrack)
                     rb.isChecked = (position == selectedPosition)
@@ -1209,13 +1177,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         view.setOnClickListener {
                             try {
-                                applyTrackSelection(
-                                    trackType,
-                                    position,
-                                    groupIndexMap,
-                                    trackIndexMap,
-                                    tracks
-                                )
+                                applyTrackSelection(trackType, position, groupIndexMap, trackIndexMap, tracks)
                             } catch (e: Exception) {}
                             dialog.dismiss()
                         }
@@ -1228,26 +1190,16 @@ class MainActivity : AppCompatActivity() {
         if (!TvManager.isTvMode) {
             listView.setOnItemClickListener { _, _, position, _ ->
                 try {
-                    applyTrackSelection(
-                        trackType,
-                        position,
-                        groupIndexMap,
-                        trackIndexMap,
-                        tracks
-                    )
+                    applyTrackSelection(trackType, position, groupIndexMap, trackIndexMap, tracks)
                 } catch (e: Exception) {}
                 dialog.dismiss()
             }
         }
     }
 
-    // Extracted track selection logic to avoid duplication between TV and touch modes
     private fun applyTrackSelection(
-        trackType: Int,
-        position: Int,
-        groupIndexMap: ArrayList<Int>,
-        trackIndexMap: ArrayList<Int>,
-        tracks: androidx.media3.common.Tracks
+        trackType: Int, position: Int, groupIndexMap: ArrayList<Int>,
+        trackIndexMap: ArrayList<Int>, tracks: androidx.media3.common.Tracks
     ) {
         if (player == null) return
         val groupIndex = groupIndexMap[position]
@@ -1288,7 +1240,6 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(hideControlsRunnable)
         handler.postDelayed(hideControlsRunnable, 3000)
 
-        // FIX #15: Remove existing callbacks before posting to prevent duplicate runnables
         updateSeekRunnable?.let {
             handler.removeCallbacks(it)
             handler.post(it)
@@ -1323,12 +1274,12 @@ class MainActivity : AppCompatActivity() {
         lastErrorTime = 0L
         autoRetryCount = 0
 
-        // FIX #3: Cancel any pending retry from previous channel before starting new one
         retryRunnable?.let { handler.removeCallbacks(it) }
         retryRunnable = null
 
         try {
-            // FIX #18: Store index by name match to survive list mutations from search/filter
+            // 🔥 NEW: Store exact channel reference to navigate the active list accurately
+            currentPlayingChannel = channel
             lastPlayedIndex = allChannels.indexOf(channel)
 
             if (debugText == null && playerContainer != null) {
@@ -1354,36 +1305,21 @@ class MainActivity : AppCompatActivity() {
 
                 player?.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        btnPlay?.text = if (isPlaying) "||" else ""
+                        btnPlay?.text = if (isPlaying) "||" else " "
                         playerView?.keepScreenOn = isPlaying
                     }
 
-                    override fun onPlayerError(
-                        error: androidx.media3.common.PlaybackException
-                    ) {
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                         playerView?.post {
-                            playerView
-                                ?.findViewById<TextView>(
-                                    androidx.media3.ui.R.id.exo_error_message
-                                )
-                                ?.visibility = View.GONE
+                            playerView?.findViewById<TextView>(androidx.media3.ui.R.id.exo_error_message)?.visibility = View.GONE
                         }
-
-                        val errorDetail =
-                            error.cause?.message ?: error.errorCodeName
+                        val errorDetail = error.cause?.message ?: error.errorCodeName
                         val MAX_RETRIES = 3
 
                         if (autoRetryCount < MAX_RETRIES) {
                             autoRetryCount++
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Network drop... Retrying ($autoRetryCount/$MAX_RETRIES)",
-                                Toast.LENGTH_SHORT
-                            ).show()
-
-                            // FIX #3: Store runnable so it can be cancelled on channel switch
+                            Toast.makeText(this@MainActivity, "Network drop... Retrying ($autoRetryCount/$MAX_RETRIES)", Toast.LENGTH_SHORT).show()
                             retryRunnable = Runnable {
-                                // Guard: only retry if player still exists and hasn't changed
                                 if (player != null) {
                                     player?.prepare()
                                     player?.playWhenReady = true
@@ -1395,27 +1331,16 @@ class MainActivity : AppCompatActivity() {
                             val currentTime = System.currentTimeMillis()
                             if (currentTime - lastErrorTime > 10000) {
                                 lastErrorTime = currentTime
-                                Toast.makeText(
-                                    this@MainActivity,
-                                    "Stream Offline: $errorDetail",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                                Toast.makeText(this@MainActivity, "Stream Offline: $errorDetail", Toast.LENGTH_LONG).show()
                             }
                         }
                     }
 
-                    override fun onEvents(
-                        eventPlayer: Player,
-                        events: Player.Events
-                    ) {
-                        if (events.contains(Player.EVENT_VIDEO_SIZE_CHANGED) ||
-                            events.contains(Player.EVENT_TRACKS_CHANGED)
-                        ) {
+                    override fun onEvents(eventPlayer: Player, events: Player.Events) {
+                        if (events.contains(Player.EVENT_VIDEO_SIZE_CHANGED) || events.contains(Player.EVENT_TRACKS_CHANGED)) {
                             val format = (eventPlayer as? ExoPlayer)?.videoFormat
                             if (format != null) {
-                                var br =
-                                    if (format.bitrate > 0) format.bitrate / 1000 else 0
-
+                                var br = if (format.bitrate > 0) format.bitrate / 1000 else 0
                                 if (br == 0) {
                                     var found = false
                                     if (format.id != null) {
@@ -1423,9 +1348,7 @@ class MainActivity : AppCompatActivity() {
                                             if (group.type == C.TRACK_TYPE_VIDEO) {
                                                 for (i in 0 until group.length) {
                                                     val tFormat = group.getTrackFormat(i)
-                                                    if (tFormat.id == format.id &&
-                                                        tFormat.bitrate > 0
-                                                    ) {
+                                                    if (tFormat.id == format.id && tFormat.bitrate > 0) {
                                                         br = tFormat.bitrate / 1000
                                                         found = true; break
                                                     }
@@ -1436,16 +1359,11 @@ class MainActivity : AppCompatActivity() {
                                     }
                                     if (!found) {
                                         for (group in eventPlayer.currentTracks.groups) {
-                                            if (group.type == C.TRACK_TYPE_VIDEO &&
-                                                group.isSelected
-                                            ) {
+                                            if (group.type == C.TRACK_TYPE_VIDEO && group.isSelected) {
                                                 for (i in 0 until group.length) {
                                                     if (group.isTrackSelected(i)) {
                                                         val tFormat = group.getTrackFormat(i)
-                                                        if (tFormat.width == format.width &&
-                                                            tFormat.height == format.height &&
-                                                            tFormat.bitrate > 0
-                                                        ) {
+                                                        if (tFormat.width == format.width && tFormat.height == format.height && tFormat.bitrate > 0) {
                                                             br = tFormat.bitrate / 1000
                                                             found = true; break
                                                         }
@@ -1456,7 +1374,6 @@ class MainActivity : AppCompatActivity() {
                                         }
                                     }
                                 }
-
                                 val info = "${format.width}x${format.height} | ${br}kbps"
                                 if (info.isNotEmpty() && debugText?.text != info) {
                                     runOnUiThread {
@@ -1472,14 +1389,11 @@ class MainActivity : AppCompatActivity() {
 
                     override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                         if (isManualTrackOverride) return
-
-                        val prefs =
-                            getSharedPreferences("iptv_settings", Context.MODE_PRIVATE)
+                        val prefs = getSharedPreferences("iptv_settings", Context.MODE_PRIVATE)
                         val videoMode = prefs.getInt("video_mode", 0)
 
                         if (videoMode == 1 || videoMode == 2) {
-                            var targetBitrate =
-                                if (videoMode == 1) Int.MAX_VALUE else -1
+                            var targetBitrate = if (videoMode == 1) Int.MAX_VALUE else -1
                             var targetGroupIndex = -1
                             var targetTrackIndex = -1
                             var hasVideo = false
@@ -1493,15 +1407,11 @@ class MainActivity : AppCompatActivity() {
                                             val format = group.getTrackFormat(j)
                                             val bit = format.bitrate
                                             if (bit > 0) {
-                                                if (videoMode == 1 &&
-                                                    bit < targetBitrate
-                                                ) {
+                                                if (videoMode == 1 && bit < targetBitrate) {
                                                     targetBitrate = bit
                                                     targetGroupIndex = i
                                                     targetTrackIndex = j
-                                                } else if (videoMode == 2 &&
-                                                    bit > targetBitrate
-                                                ) {
+                                                } else if (videoMode == 2 && bit > targetBitrate) {
                                                     targetBitrate = bit
                                                     targetGroupIndex = i
                                                     targetTrackIndex = j
@@ -1512,24 +1422,16 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
 
-                            if (hasVideo &&
-                                targetGroupIndex != -1 &&
-                                targetTrackIndex != -1
-                            ) {
-                                val targetGroup =
-                                    tracks.groups[targetGroupIndex].mediaTrackGroup
+                            if (hasVideo && targetGroupIndex != -1 && targetTrackIndex != -1) {
+                                val targetGroup = tracks.groups[targetGroupIndex].mediaTrackGroup
                                 val currentParams = player!!.trackSelectionParameters
-                                val overrideConfig =
-                                    currentParams.overrides[targetGroup]
-                                val isAlreadyLocked =
-                                    overrideConfig != null &&
-                                    overrideConfig.trackIndices.contains(targetTrackIndex)
+                                val overrideConfig = currentParams.overrides[targetGroup]
+                                val isAlreadyLocked = overrideConfig != null && overrideConfig.trackIndices.contains(targetTrackIndex)
 
                                 if (!isAlreadyLocked) {
                                     val builder = currentParams.buildUpon()
                                     builder.clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                                    val override =
-                                        TrackSelectionOverride(targetGroup, targetTrackIndex)
+                                    val override = TrackSelectionOverride(targetGroup, targetTrackIndex)
                                     builder.setOverrideForType(override)
                                     player!!.trackSelectionParameters = builder.build()
                                 }
@@ -1575,13 +1477,11 @@ class MainActivity : AppCompatActivity() {
             if (launchIntent != null) {
                 startActivity(launchIntent)
             } else {
-                Toast.makeText(this, "App not found or cannot be opened!", Toast.LENGTH_SHORT)
-                    .show()
+                Toast.makeText(this, "App not found or cannot be opened!", Toast.LENGTH_SHORT).show()
             }
             return
         }
 
-        // FIX #6: Cancel previous OkHttp call properly via the call object
         if (currentLoadTask != null && !currentLoadTask!!.isDone) {
             currentLoadTask?.cancel(true)
         }
@@ -1598,27 +1498,17 @@ class MainActivity : AppCompatActivity() {
                 val newChannels = try {
                     if (m3uUrl.startsWith("content://")) {
                         val uri = android.net.Uri.parse(m3uUrl)
-                        val inputStream =
-                            contentResolver.openInputStream(uri)
-                                ?: throw Exception("Cannot open file")
-                        // FIX #11: Ensure stream is closed
+                        val inputStream = contentResolver.openInputStream(uri) ?: throw Exception("Cannot open file")
                         inputStream.use { IptvParser().parse(it) }
                     } else {
-                        val request =
-                            okhttp3.Request.Builder()
+                        val request = okhttp3.Request.Builder()
                                 .url(m3uUrl)
                                 .header("User-Agent", "Mozilla/5.0")
                                 .build()
-
                         if (Thread.currentThread().isInterrupted) return@submit
-
-                        // FIX #11: Use response.use{} to ensure body is always closed
-                        val response =
-                            PlayerEngine.okHttpClient.newCall(request).execute()
+                        val response = PlayerEngine.okHttpClient.newCall(request).execute()
                         response.use { resp ->
-                            val inputStream =
-                                resp.body?.byteStream()
-                                    ?: throw Exception("Empty body")
+                            val inputStream = resp.body?.byteStream() ?: throw Exception("Empty body")
                             IptvParser().parse(inputStream)
                         }
                     }
@@ -1638,9 +1528,7 @@ class MainActivity : AppCompatActivity() {
                         playerContainer?.layoutParams?.height = 0
                     }
 
-                    // FIX #20: Centralized settings button visibility
                     updateSettingsButtonVisibility()
-
                     findViewById<View>(R.id.groupFilterBar)?.visibility = View.VISIBLE
 
                     if (newChannels.isNotEmpty()) {
@@ -1649,7 +1537,6 @@ class MainActivity : AppCompatActivity() {
 
                         showAllChannels()
                         flipper?.displayedChild = 1
-                        // FIX #20: Update after flipper change
                         updateSettingsButtonVisibility()
 
                         if (TvManager.isTvMode) {
@@ -1662,11 +1549,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     } else {
-                        Toast.makeText(
-                            this@MainActivity,
-                            "Playlist Empty or Failed",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        Toast.makeText(this@MainActivity, "Playlist Empty or Failed", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
@@ -1687,8 +1570,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // FIX #14: Always set channelAdapter so group adapter isn't replaced silently
-        // Only update if we are NOT in group view
         if (!isGroupView) {
             if (channelListView?.adapter != channelAdapter) {
                 channelListView?.adapter = channelAdapter
@@ -1698,11 +1579,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun releasePlayer() {
-        // FIX #3: Cancel pending retry before releasing
         retryRunnable?.let { handler.removeCallbacks(it) }
         retryRunnable = null
 
-        // FIX #4: Remove ALL pending handler callbacks on release
         updateSeekRunnable?.let { handler.removeCallbacks(it) }
         handler.removeCallbacks(hideControlsRunnable)
         handler.removeCallbacks(hideInfoRunnable)
@@ -1712,45 +1591,43 @@ class MainActivity : AppCompatActivity() {
         player = null
     }
 
+    // 🔥 NEW: Uses active 'channels' list index to accurately play the next channel without looping 
     private fun playNextChannel() {
         if (channels.isEmpty()) return
 
-        // FIX #8: Match by channel object reference in allChannels, not by URL string
-        // which may differ after pipe parsing
-        val currentIndex = if (lastPlayedIndex >= 0 && lastPlayedIndex < channels.size) {
-            lastPlayedIndex
-        } else {
-            // Fallback: try URL match
-            val currentUrl =
-                player?.currentMediaItem?.localConfiguration?.uri?.toString() ?: ""
-            channels.indexOfFirst { it.url == currentUrl }
+        var currentIndex = channels.indexOf(currentPlayingChannel)
+        
+        if (currentIndex == -1) {
+            val currentUrl = player?.currentMediaItem?.localConfiguration?.uri?.toString() ?: ""
+            currentIndex = channels.indexOfFirst { it.url == currentUrl }
         }
 
-        if (currentIndex != -1 && currentIndex < channels.size - 1) {
-            playChannel(channels[currentIndex + 1])
-            channelListView?.smoothScrollToPosition(currentIndex + 1)
-        } else if (currentIndex == channels.size - 1) {
+        if (currentIndex != -1) {
+            val nextIndex = if (currentIndex < channels.size - 1) currentIndex + 1 else 0
+            playChannel(channels[nextIndex])
+            channelListView?.smoothScrollToPosition(nextIndex)
+        } else {
             playChannel(channels[0])
             channelListView?.smoothScrollToPosition(0)
         }
     }
 
+    // 🔥 NEW: Uses active 'channels' list index to accurately play previous channel
     private fun playPreviousChannel() {
         if (channels.isEmpty()) return
 
-        // FIX #8: Same fix as playNextChannel
-        val currentIndex = if (lastPlayedIndex >= 0 && lastPlayedIndex < channels.size) {
-            lastPlayedIndex
-        } else {
-            val currentUrl =
-                player?.currentMediaItem?.localConfiguration?.uri?.toString() ?: ""
-            channels.indexOfFirst { it.url == currentUrl }
+        var currentIndex = channels.indexOf(currentPlayingChannel)
+        
+        if (currentIndex == -1) {
+            val currentUrl = player?.currentMediaItem?.localConfiguration?.uri?.toString() ?: ""
+            currentIndex = channels.indexOfFirst { it.url == currentUrl }
         }
 
-        if (currentIndex > 0) {
-            playChannel(channels[currentIndex - 1])
-            channelListView?.smoothScrollToPosition(currentIndex - 1)
-        } else if (currentIndex == 0) {
+        if (currentIndex != -1) {
+            val prevIndex = if (currentIndex > 0) currentIndex - 1 else channels.size - 1
+            playChannel(channels[prevIndex])
+            channelListView?.smoothScrollToPosition(prevIndex)
+        } else {
             playChannel(channels[channels.size - 1])
             channelListView?.smoothScrollToPosition(channels.size - 1)
         }
@@ -1773,10 +1650,8 @@ class MainActivity : AppCompatActivity() {
 
     fun showRenameDialog(p: Int) {
         val input = EditText(this)
-        // FIX #13: Only take the first segment as name, preserve full URL intact
         val parts = playlists[p].split("|")
         val currentName = parts[0]
-        // Rejoin everything after first | as the URL (handles URLs with | in them)
         val currentUrl = if (parts.size > 1) parts.drop(1).joinToString("|") else ""
         input.setText(currentName)
 
@@ -1785,7 +1660,6 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Save") { _, _ ->
                 val newName = input.text.toString().trim()
                 if (newName.isNotEmpty()) {
-                    // FIX #13: Preserve full URL with all pipe segments
                     playlists[p] = "$newName|$currentUrl"
                     savePlaylists()
                 }
@@ -1805,7 +1679,7 @@ class MainActivity : AppCompatActivity() {
         dialogUrlInput?.hint = "URL or Local File Path"
 
         val btnBrowse = Button(this)
-        btnBrowse.text = " BROWSE LOCAL FILE (.m3u)"
+        btnBrowse.text = "  BROWSE LOCAL FILE (.m3u)"
         btnBrowse.setBackgroundColor(Color.parseColor("#444444"))
         btnBrowse.setTextColor(Color.WHITE)
         val btnLayoutParams = LinearLayout.LayoutParams(
@@ -1845,8 +1719,7 @@ class MainActivity : AppCompatActivity() {
         mainIntent.addCategory(Intent.CATEGORY_LAUNCHER)
         val installedApps = pm.queryIntentActivities(mainIntent, 0)
         installedApps.sortBy { it.loadLabel(pm).toString().lowercase() }
-        val appNames =
-            installedApps.map { it.loadLabel(pm).toString() }.toTypedArray()
+        val appNames = installedApps.map { it.loadLabel(pm).toString() }.toTypedArray()
 
         AlertDialog.Builder(this)
             .setTitle("Select App to Add")
@@ -1884,7 +1757,6 @@ class MainActivity : AppCompatActivity() {
         val item = playlists[p]
         val parts = item.split("|")
         val currentName = parts[0]
-        // FIX #13: Preserve full URL including any pipe segments
         val currentUrl = if (parts.size > 1) parts.drop(1).joinToString("|") else ""
 
         val input = EditText(this)
@@ -1923,14 +1795,10 @@ class MainActivity : AppCompatActivity() {
         updateDisplayList()
     }
 
-    // FIX #1: Use onDestroy instead of onStop so PiP and background audio survive
-    // onStop fires when PiP activates � releasing here killed the player in PiP
     override fun onDestroy() {
         super.onDestroy()
         releasePlayer()
-        // FIX #5: Shutdown executor to prevent thread leak on activity destroy
         executor.shutdown()
-        // FIX #7: Interrupt reload thread if still running
         reloadThread?.interrupt()
     }
 
@@ -1953,13 +1821,9 @@ class MainActivity : AppCompatActivity() {
                 releasePlayer()
                 playerContainer?.visibility = View.GONE
 
-                if (flipper?.displayedChild == 1 && lastPlayedIndex != -1) {
+                if (flipper?.displayedChild == 1 && currentPlayingChannel != null) {
                     channelListView?.post {
-                        // FIX #18: lastPlayedIndex now based on allChannels
-                        // Map back to current channels list position for scroll
-                        val scrollPos = channels.indexOf(
-                            allChannels.getOrNull(lastPlayedIndex)
-                        ).coerceAtLeast(0)
+                        val scrollPos = channels.indexOf(currentPlayingChannel).coerceAtLeast(0)
                         channelListView?.setSelection(scrollPos)
                         channelListView?.requestFocus()
                     }
@@ -1978,10 +1842,7 @@ class MainActivity : AppCompatActivity() {
             isFullscreen = true
         }
         playerContainer?.layoutParams = params
-
         TvManager.handleFullscreenToggle(this, isFullscreen)
-
-        // FIX #20: Centralized settings button visibility after fullscreen toggle
         updateSettingsButtonVisibility()
 
         btnFullscreen?.post {
@@ -2025,7 +1886,6 @@ class MainActivity : AppCompatActivity() {
             tvName.setTextColor(Color.WHITE)
 
             if (!channel.logoUrl.isNullOrEmpty()) {
-                // FIX #16: Added override() to limit Glide image size to thumbnail dimensions
                 Glide.with(context)
                     .load(channel.logoUrl)
                     .apply(
@@ -2033,7 +1893,7 @@ class MainActivity : AppCompatActivity() {
                             .placeholder(android.R.drawable.ic_menu_gallery)
                             .error(android.R.drawable.ic_menu_gallery)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
-                            .override(120, 80) // Limit decode size to thumbnail size
+                            .override(120, 80)
                     )
                     .into(imgLogo)
             } else {
