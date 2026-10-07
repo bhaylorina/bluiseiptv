@@ -157,7 +157,6 @@ class PlayerEngine {
         private val activeResolverLock = Any()
         private var activeResolverCall: Call?  = null
 
-        // 🔥 CRITICAL FIX: Memory Protection for background resolver
         private val resolverExecutor = Executors.newFixedThreadPool(4) { r ->
             Thread(r, "resolver-worker").apply { isDaemon = true }
         }
@@ -175,7 +174,10 @@ class PlayerEngine {
             val trackSelector = DefaultTrackSelector(context).apply {
                 parameters = buildUponParameters()
                     .setTunnelingEnabled(false)
+                    // 🔥 FIX: Tells ExoPlayer NOT to artificially limit quality based on TV's display size
                     .setExceedAudioConstraintsIfNecessary(true)
+                    .setExceedVideoConstraintsIfNecessary(true)
+                    .setAllowVideoNonSeamlessAdaptiveness(true)
                     .setAllowAudioMixedMimeTypeAdaptiveness(true)
                     .setAllowAudioMixedChannelCountAdaptiveness(true)
                     .setAudioOffloadPreferences(
@@ -364,7 +366,6 @@ class PlayerEngine {
             val licenseUrl = channel.drmLicenseUrl?.trim() ?: ""
             val drmScheme  = channel.drmScheme?.trim()?.lowercase() ?: ""
 
-            // 🔥 NEW: Multi-Key Extractor Logic
             val clearkeys = mutableMapOf<String, String>()
             
             fun extractPairs(input: String?) {
@@ -404,7 +405,6 @@ class PlayerEngine {
                 }
 
                 hasLocalKeys -> {
-                    Log.d(TAG, "DRM: Extracted Local Keys Count = ${clearkeys.size}")
                     val cb = LocalClearKeyCallback(clearkeys, null)
                     drmSessionManager = DefaultDrmSessionManager.Builder()
                         .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
@@ -477,7 +477,6 @@ class PlayerEngine {
 
     } 
 
-    // 🔥 NEW: Multi-Key JSON Generator 
     private class LocalClearKeyCallback(
         private val keysMap: Map<String, String>,
         private val inlineJson: String? = null
