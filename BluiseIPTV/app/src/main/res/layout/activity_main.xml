@@ -193,7 +193,9 @@
                             android:orientation="horizontal"
                             android:weightSum="6"
                             android:gravity="center"
-                            android:layout_marginBottom="5dp"> <Button
+                            android:layout_marginBottom="5dp"> 
+                            
+                            <Button
                                 android:id="@+id/btnScale"
                                 android:layout_width="0dp"
                                 android:layout_height="50dp"
@@ -259,7 +261,9 @@
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
                             android:gravity="center_vertical"
-                            android:layout_marginBottom="0dp"> <TextView
+                            android:layout_marginBottom="0dp"> 
+                            
+                            <TextView
                                 android:id="@+id/tvCurrentTime"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
@@ -289,6 +293,21 @@
 
                     </LinearLayout>
                 </RelativeLayout>
+
+                <!-- 🔥 NAYA QUICK CHANNEL OVERLAY LIST -->
+                <ListView
+                    android:id="@+id/overlayChannelListView"
+                    android:layout_width="280dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="end"
+                    android:background="#B3000000"
+                    android:divider="#333333"
+                    android:dividerHeight="1dp"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:visibility="gone"
+                    android:clipToPadding="false" />
+
             </FrameLayout>
 
             <EditText
@@ -337,11 +356,13 @@
                     android:insetTop="0dp"
                     android:insetBottom="0dp"/>
             </LinearLayout>
+            
             <ListView
                 android:id="@+id/channelListView"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:background="#000000"/>
+                
         </LinearLayout>
     </ViewFlipper>
 </LinearLayout>
