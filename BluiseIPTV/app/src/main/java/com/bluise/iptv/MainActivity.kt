@@ -335,7 +335,7 @@ class MainActivity : AppCompatActivity() {
         return super.dispatchKeyEvent(event)
     }
 
-    // 🔥 NEW: Functions to show and hide Overlay List safely
+        // 🔥 UPDATED: Functions to show and hide Overlay List safely with TV Focus
     private fun showOverlayList() {
         controlsContainer?.visibility = View.GONE
         overlayChannelListView?.visibility = View.VISIBLE
@@ -344,8 +344,17 @@ class MainActivity : AppCompatActivity() {
         val currentIndex = channels.indexOf(currentPlayingChannel)
         if (currentIndex != -1) {
             overlayChannelListView?.setSelection(currentIndex)
+            
+            // 💡 TV Focus Hack: UI thread ko time dena zaruri hai layout draw karne ka
+            overlayChannelListView?.post {
+                val view = overlayChannelListView?.getChildAt(
+                    currentIndex - (overlayChannelListView?.firstVisiblePosition ?: 0)
+                )
+                view?.requestFocus()
+            }
+        } else {
+            overlayChannelListView?.requestFocus()
         }
-        overlayChannelListView?.requestFocus()
 
         handler.removeCallbacks(hideOverlayRunnable)
         handler.postDelayed(hideOverlayRunnable, 7000)
