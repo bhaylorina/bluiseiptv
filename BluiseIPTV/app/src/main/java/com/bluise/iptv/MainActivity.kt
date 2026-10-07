@@ -83,8 +83,6 @@ class MainActivity : AppCompatActivity() {
 
     var player: ExoPlayer? = null
     var lastPlayedIndex = -1
-    
-    // 🔥 NEW: Explicitly track the currently playing channel to fix Next/Prev bug
     var currentPlayingChannel: Channel? = null
 
     val playlists = ArrayList<String>()
@@ -237,12 +235,11 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {}
     }
 
-    // 🔥 NEW: Handle explicit app stopping to prevent ghost audio
     override fun onStop() {
         super.onStop()
-        // Kills the background playback when PiP window is dismissed or Screen locks
-        player?.pause()
-        btnPlay?.text = " "
+        // 🔥 FIX: Stop completely releases the network connection in background
+        player?.playWhenReady = false
+        player?.stop()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -703,11 +700,7 @@ class MainActivity : AppCompatActivity() {
 
         playlistAdapter =
             object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, displayPlaylists) {
-                override fun getView(
-                    position: Int,
-                    convertView: View?,
-                    parent: ViewGroup
-                ): View {
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                     val view = super.getView(position, convertView, parent) as TextView
                     val item = getItem(position) ?: ""
                     view.text = item.split("|").firstOrNull() ?: "Unknown"
@@ -822,14 +815,15 @@ class MainActivity : AppCompatActivity() {
         btnFullscreen?.setOnClickListener { toggleFullscreen(); showControls() }
         btnQuality?.setOnClickListener { showTrackDialog(); showControls() }
 
+        // 🔥 FIX: Pause button completely stops network download. Play reconnects fresh.
         btnPlay?.setOnClickListener {
             if (player != null) {
-                if (player!!.isPlaying) {
-                    player!!.pause()
-                    btnPlay?.text = " "
+                if (player!!.playWhenReady) {
+                    player!!.playWhenReady = false
+                    player!!.stop() // Drops the active internet connection
                 } else {
-                    player!!.play()
-                    btnPlay?.text = "||"
+                    player!!.prepare() // Reconnects and fetches Live Edge stream
+                    player!!.playWhenReady = true
                 }
             }
             showControls()
@@ -1278,7 +1272,6 @@ class MainActivity : AppCompatActivity() {
         retryRunnable = null
 
         try {
-            // 🔥 NEW: Store exact channel reference to navigate the active list accurately
             currentPlayingChannel = channel
             lastPlayedIndex = allChannels.indexOf(channel)
 
@@ -1304,8 +1297,10 @@ class MainActivity : AppCompatActivity() {
                 playerView?.controllerAutoShow = false
 
                 player?.addListener(object : Player.Listener {
+                    
+                    // 🔥 FIX: Check `playWhenReady` for accurate UI button icon updates 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        btnPlay?.text = if (isPlaying) "||" else " "
+                        btnPlay?.text = if (player?.playWhenReady == true) "||" else "▶"
                         playerView?.keepScreenOn = isPlaying
                     }
 
@@ -1591,7 +1586,6 @@ class MainActivity : AppCompatActivity() {
         player = null
     }
 
-    // 🔥 NEW: Uses active 'channels' list index to accurately play the next channel without looping 
     private fun playNextChannel() {
         if (channels.isEmpty()) return
 
@@ -1612,7 +1606,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 🔥 NEW: Uses active 'channels' list index to accurately play previous channel
     private fun playPreviousChannel() {
         if (channels.isEmpty()) return
 
