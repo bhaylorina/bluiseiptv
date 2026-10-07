@@ -49,7 +49,7 @@ class MainActivity : AppCompatActivity() {
     var playerView: PlayerView? = null
     var playlistListView: ListView? = null
     var channelListView: ListView? = null
-    var overlayChannelListView: ListView? = null // 🔥 NEW: Overlay List
+    var overlayChannelListView: ListView? = null
     var playerContainer: FrameLayout? = null
     var controlsContainer: RelativeLayout? = null
 
@@ -137,7 +137,6 @@ class MainActivity : AppCompatActivity() {
         updateSeekRunnable?.let { handler.removeCallbacks(it) }
     }
 
-    // 🔥 NEW: Overlay List Auto-Hide Timer (7 seconds)
     val hideOverlayRunnable = Runnable {
         overlayChannelListView?.visibility = View.GONE
     }
@@ -247,40 +246,25 @@ class MainActivity : AppCompatActivity() {
         player?.stop()
     }
 
-    // 🔥 NEW: Logic for Key Interception (Overlay vs Controls)
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (isFullscreen && event.action == KeyEvent.ACTION_DOWN) {
             val isControlsVisible = controlsContainer?.visibility == View.VISIBLE
             val isOverlayVisible = overlayChannelListView?.visibility == View.VISIBLE
 
-            // 1. Agar Overlay List Open hai
             if (isOverlayVisible) {
-                // Har button press par 7 second ka timer reset hoga
                 handler.removeCallbacks(hideOverlayRunnable)
                 handler.postDelayed(hideOverlayRunnable, 7000)
 
                 when (event.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                        val pos = overlayChannelListView?.selectedItemPosition ?: -1
-                        if (pos != -1 && pos < channels.size) {
-                            playChannel(channels[pos])
-                            hideOverlayList()
-                        }
-                        return true
-                    }
-                    KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                        hideOverlayList()
-                        return true
-                    }
+                    KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE,
                     KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
                         hideOverlayList()
                         return true
                     }
                 }
-                return super.dispatchKeyEvent(event) // UP/DOWN ko normally list scroll karne dega
+                return super.dispatchKeyEvent(event)
             }
 
-            // 2. Agar screen par koi Controls/Button nahi hain
             if (!isControlsVisible) {
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
@@ -309,8 +293,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             } else {
-                // 3. Agar Controls/Buttons Open hain (Default Navigation)
-                showControls() // controls ka timer reset karega
+                showControls()
                 if (TvManager.isTvMode) {
                     when (event.keyCode) {
                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
@@ -335,7 +318,6 @@ class MainActivity : AppCompatActivity() {
         return super.dispatchKeyEvent(event)
     }
 
-        // 🔥 UPDATED: Functions to show and hide Overlay List safely with TV Focus
     private fun showOverlayList() {
         controlsContainer?.visibility = View.GONE
         overlayChannelListView?.visibility = View.VISIBLE
@@ -344,17 +326,8 @@ class MainActivity : AppCompatActivity() {
         val currentIndex = channels.indexOf(currentPlayingChannel)
         if (currentIndex != -1) {
             overlayChannelListView?.setSelection(currentIndex)
-            
-            // 💡 TV Focus Hack: UI thread ko time dena zaruri hai layout draw karne ka
-            overlayChannelListView?.post {
-                val view = overlayChannelListView?.getChildAt(
-                    currentIndex - (overlayChannelListView?.firstVisiblePosition ?: 0)
-                )
-                view?.requestFocus()
-            }
-        } else {
-            overlayChannelListView?.requestFocus()
         }
+        overlayChannelListView?.requestFocus()
 
         handler.removeCallbacks(hideOverlayRunnable)
         handler.postDelayed(hideOverlayRunnable, 7000)
@@ -560,7 +533,7 @@ class MainActivity : AppCompatActivity() {
         super.onPictureInPictureModeChanged(isInPiP, newConfig)
         if (isInPiP) {
             controlsContainer?.visibility = View.GONE
-            hideOverlayList() // 🔥 PiP Mode mein Overlay hide karna zaroori hai
+            hideOverlayList()
             infoText?.visibility = View.GONE
             channelNameOverlay?.visibility = View.GONE
             searchBar?.visibility = View.GONE
@@ -624,7 +597,7 @@ class MainActivity : AppCompatActivity() {
         playerView = findViewById(R.id.playerView)
         playlistListView = findViewById(R.id.playlistListView)
         channelListView = findViewById(R.id.channelListView)
-        overlayChannelListView = findViewById(R.id.overlayChannelListView) // 🔥 Overlay Init
+        overlayChannelListView = findViewById(R.id.overlayChannelListView)
         playerContainer = findViewById(R.id.playerContainer)
         controlsContainer = findViewById(R.id.controlsContainer)
 
@@ -637,6 +610,11 @@ class MainActivity : AppCompatActivity() {
             channelListView?.isFocusable = true
             playlistListView?.itemsCanFocus = true
             channelListView?.itemsCanFocus = true
+            
+            overlayChannelListView?.isFocusable = true
+            overlayChannelListView?.itemsCanFocus = true
+            overlayChannelListView?.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            
             btnShowAll?.isFocusable = true
             btnShowGroups?.isFocusable = true
         }
@@ -953,7 +931,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 🔥 Mobile devices ke touch event ke liye bhi click listener laga diya
         overlayChannelListView?.setOnItemClickListener { _, _, position, _ ->
             playChannel(channels[position])
         }
@@ -1368,7 +1345,7 @@ class MainActivity : AppCompatActivity() {
     fun playChannel(channel: Channel) {
         if (channel.url.isEmpty()) return
 
-        hideOverlayList() // 🔥 Channel badalte hi overlay band kar denge
+        hideOverlayList() 
 
         isManualTrackOverride = false
         lastErrorTime = 0L
@@ -1683,7 +1660,7 @@ class MainActivity : AppCompatActivity() {
 
         updateSeekRunnable?.let { handler.removeCallbacks(it) }
         handler.removeCallbacks(hideControlsRunnable)
-        handler.removeCallbacks(hideOverlayRunnable) // 🔥 Overlay timer band
+        handler.removeCallbacks(hideOverlayRunnable) 
         handler.removeCallbacks(hideInfoRunnable)
         handler.removeCallbacks(hideChannelNameRunnable)
 
@@ -1914,7 +1891,7 @@ class MainActivity : AppCompatActivity() {
             updatePlayerMargins(false)
             supportActionBar?.show()
             isFullscreen = false
-            hideOverlayList() // 🔥 Fullscreen exit karte time list close ho jayegi
+            hideOverlayList() 
 
             if (TvManager.isTvMode) {
                 releasePlayer()
@@ -2016,7 +1993,6 @@ class MainActivity : AppCompatActivity() {
                     else view.setBackgroundColor(Color.TRANSPARENT)
                 }
 
-                // Adapter ka normal click listener overlay click me bhi kaam karega
                 view.setOnClickListener { playChannel(channels[position]) }
 
                 view.setOnLongClickListener {
