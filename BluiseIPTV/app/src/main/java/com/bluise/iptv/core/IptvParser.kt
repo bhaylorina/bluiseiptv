@@ -4,6 +4,7 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
+import java.net.URLDecoder
 import java.util.regex.Pattern
 
 class IptvParser {
@@ -115,7 +116,10 @@ class IptvParser {
                     if (currentTitle.isNullOrEmpty()) currentTitle = attrVal
                 }
                 "keyid", "kid", "drm-keyid" -> currentKeyId = attrVal.replace("-", "")
-                "key", "license_key", "drm-key" -> currentKey = attrVal
+                
+                // 🔥 FIX: Handles both license_key and licence_key for EXTINF tags
+                "key", "license_key", "licence_key", "drm-key" -> currentKey = attrVal
+                
                 "user-agent"                -> if (currentUa == null) currentUa = attrVal
             }
         }
@@ -160,8 +164,13 @@ class IptvParser {
         if (propVal.isEmpty()) return
 
         when (propKey) {
-            "inputstream.adaptive.license_type"   -> currentDrmScheme = propVal
-            "inputstream.adaptive.license_key"    -> parseLicenseKeyValue(propVal)
+            // 🔥 FIX: Added both 'license' and 'licence' spellings to keep it safe for all providers
+            "inputstream.adaptive.license_type", 
+            "inputstream.adaptive.licence_type"   -> currentDrmScheme = propVal
+            
+            "inputstream.adaptive.license_key", 
+            "inputstream.adaptive.licence_key"    -> parseLicenseKeyValue(propVal)
+            
             "inputstream.adaptive.stream_headers" -> parsePipeParams(propVal)
             "http-user-agent", "http_user_agent"  -> if (currentUa == null) currentUa = propVal
             "http-referer",    "http_referer"     -> if (currentReferer == null) currentReferer = propVal
@@ -250,7 +259,6 @@ class IptvParser {
             value.startsWith("http://") || value.startsWith("https://") -> {
                 currentLicenseKey = value
             }
-            // 🔥 NEW: Store raw string for Multiple Keys extraction later
             else -> {
                 currentLicenseKey = value
             }
@@ -263,8 +271,15 @@ class IptvParser {
             if (eqIdx == -1) return@forEach
 
             val rawKey = part.substring(0, eqIdx).trim()
-            val value  = part.substring(eqIdx + 1).trim()
-            if (rawKey.isEmpty() || value.isEmpty()) return@forEach
+            val rawValue  = part.substring(eqIdx + 1).trim()
+            if (rawKey.isEmpty() || rawValue.isEmpty()) return@forEach
+
+            // 🔥 FIX: Decode URL-encoded headers (like %20, %3A, %3D) safely for JioTV
+            val value = try {
+                URLDecoder.decode(rawValue, "UTF-8")
+            } catch (e: Exception) {
+                rawValue
+            }
 
             val canonical = PIPE_HEADER_MAP[rawKey.lowercase()] ?: rawKey
 
@@ -331,7 +346,12 @@ class IptvParser {
         val rawUa = obj.optString("user_agent", "").trim().ifBlank { obj.optString("user-agent", "").trim().ifBlank { null } }
         val userAgent = rawUa?.let { resolveUaAlias(it) }
 
-        val licenseUrl = obj.optString("license_url", "").trim().ifBlank { obj.optString("drm_license_url", "").trim().ifBlank { null } }
+        // 🔥 FIX: Covers license_url, drm_license_url AND licence_url
+        val licenseUrl = obj.optString("license_url", "").trim().ifBlank { 
+            obj.optString("drm_license_url", "").trim().ifBlank { 
+                obj.optString("licence_url", "").trim().ifBlank { null } 
+            } 
+        }
 
         val typeField = obj.optString("type", "").trim().lowercase()
         val drmScheme: String? = obj.optString("drm_scheme", "").trim().ifBlank { null }
@@ -346,7 +366,11 @@ class IptvParser {
         var parsedKeyId: String? = obj.optString("key_id", "").trim().ifBlank { obj.optString("kid", "").trim().ifBlank { null } }?.replace("-", "")
         var parsedKey: String? = obj.optString("key", "").trim().ifBlank { null }
 
-        val rawLicenseKey = obj.optString("license_key", "").trim().ifBlank { null }
+        // 🔥 FIX: Covers license_key AND licence_key for JSON
+        val rawLicenseKey = obj.optString("license_key", "").trim().ifBlank { 
+            obj.optString("licence_key", "").trim().ifBlank { null } 
+        }
+        
         if (rawLicenseKey != null && licenseUrl == null) {
             val (lu, ki, k) = parseRawLicenseKey(rawLicenseKey)
             if (lu  != null) parsedLicenseUrl = lu
@@ -446,7 +470,6 @@ class IptvParser {
             value.contains("|") && value.startsWith("http") -> Triple(value.substringBefore("|").trim(), null, null)
             value.startsWith("http://") || value.startsWith("https://") -> Triple(value, null, null)
             
-            // 🔥 NEW: Pass multiple keys fallback as raw url to parse in PlayerEngine
             else -> Triple(value, null, null)
         }
     }
