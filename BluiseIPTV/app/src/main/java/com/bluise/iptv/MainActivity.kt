@@ -237,7 +237,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // 🔥 FIX: Stop completely releases the network connection in background
         player?.playWhenReady = false
         player?.stop()
     }
@@ -815,14 +814,13 @@ class MainActivity : AppCompatActivity() {
         btnFullscreen?.setOnClickListener { toggleFullscreen(); showControls() }
         btnQuality?.setOnClickListener { showTrackDialog(); showControls() }
 
-        // 🔥 FIX: Pause button completely stops network download. Play reconnects fresh.
         btnPlay?.setOnClickListener {
             if (player != null) {
                 if (player!!.playWhenReady) {
                     player!!.playWhenReady = false
-                    player!!.stop() // Drops the active internet connection
+                    player!!.stop() 
                 } else {
-                    player!!.prepare() // Reconnects and fetches Live Edge stream
+                    player!!.prepare() 
                     player!!.playWhenReady = true
                 }
             }
@@ -1133,21 +1131,22 @@ class MainActivity : AppCompatActivity() {
             if (group.type == trackType) {
                 for (j in 0 until group.length) {
                     val format = group.getTrackFormat(j)
-                    if (group.isTrackSupported(j)) {
-                        if (trackType == C.TRACK_TYPE_VIDEO) {
-                            val bitrate =
-                                if (format.bitrate > 0) format.bitrate / 1000 else 0
-                            groupList.add("${format.width}x${format.height}, ${bitrate}kbps")
-                        } else {
-                            val lang = format.language ?: "Unknown"
-                            val label = format.label ?: ""
-                            groupList.add("${lang.uppercase()} $label")
-                        }
-                        groupIndexMap.add(i); trackIndexMap.add(j)
-                        if (selectedPosition == -1 && group.isTrackSelected(j))
-                            selectedPosition = currentIndex
-                        currentIndex++
+                    
+                    // 🔥 FIX: TV restrictions bypassed. Shows all resolutions parsed from the playlist.
+                    if (trackType == C.TRACK_TYPE_VIDEO) {
+                        val bitrate = if (format.bitrate > 0) format.bitrate / 1000 else 0
+                        groupList.add("${format.width}x${format.height}, ${bitrate}kbps")
+                    } else {
+                        val lang = format.language ?: "Unknown"
+                        val label = format.label ?: ""
+                        groupList.add("${lang.uppercase()} $label")
                     }
+                    groupIndexMap.add(i)
+                    trackIndexMap.add(j)
+                    if (selectedPosition == -1 && group.isTrackSelected(j)) {
+                        selectedPosition = currentIndex
+                    }
+                    currentIndex++
                 }
             }
         }
@@ -1298,7 +1297,6 @@ class MainActivity : AppCompatActivity() {
 
                 player?.addListener(object : Player.Listener {
                     
-                    // 🔥 FIX: Check `playWhenReady` for accurate UI button icon updates 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         btnPlay?.text = if (player?.playWhenReady == true) "||" else "▶"
                         playerView?.keepScreenOn = isPlaying
@@ -1398,19 +1396,19 @@ class MainActivity : AppCompatActivity() {
                                 if (group.type == C.TRACK_TYPE_VIDEO) {
                                     hasVideo = true
                                     for (j in 0 until group.length) {
-                                        if (group.isTrackSupported(j)) {
-                                            val format = group.getTrackFormat(j)
-                                            val bit = format.bitrate
-                                            if (bit > 0) {
-                                                if (videoMode == 1 && bit < targetBitrate) {
-                                                    targetBitrate = bit
-                                                    targetGroupIndex = i
-                                                    targetTrackIndex = j
-                                                } else if (videoMode == 2 && bit > targetBitrate) {
-                                                    targetBitrate = bit
-                                                    targetGroupIndex = i
-                                                    targetTrackIndex = j
-                                                }
+                                        
+                                        // 🔥 FIX: TV restrictions bypassed here too for Auto Quality logic
+                                        val format = group.getTrackFormat(j)
+                                        val bit = format.bitrate
+                                        if (bit > 0) {
+                                            if (videoMode == 1 && bit < targetBitrate) {
+                                                targetBitrate = bit
+                                                targetGroupIndex = i
+                                                targetTrackIndex = j
+                                            } else if (videoMode == 2 && bit > targetBitrate) {
+                                                targetBitrate = bit
+                                                targetGroupIndex = i
+                                                targetTrackIndex = j
                                             }
                                         }
                                     }
