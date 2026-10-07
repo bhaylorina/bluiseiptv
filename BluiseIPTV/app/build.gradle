@@ -33,13 +33,17 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
-            //  MINI-PROGUARD & SHRINKER (App size ekdum chota kar dega)
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        // 🔥 Ye naya debug block add karna hai
+        debug {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
