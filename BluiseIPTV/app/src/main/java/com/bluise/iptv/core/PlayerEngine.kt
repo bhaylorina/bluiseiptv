@@ -161,11 +161,12 @@ class PlayerEngine {
             Thread(r, "resolver-worker").apply { isDaemon = true }
         }
 
-        fun createPlayer(context: Context): ExoPlayer {
+                fun createPlayer(context: Context): ExoPlayer {
             updateProxyState(context)
 
             val renderersFactory = DefaultRenderersFactory(context)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+                .setMediaCodecSelector(MediaCodecSelector.DEFAULT) // 🔥 Force native Hardware Decoder
                 .setEnableDecoderFallback(true)
                 .apply {
                     if (android.os.Build.VERSION.SDK_INT >= 23) forceEnableMediaCodecAsynchronousQueueing()
@@ -173,13 +174,14 @@ class PlayerEngine {
 
             val trackSelector = DefaultTrackSelector(context).apply {
                 parameters = buildUponParameters()
-                    .setTunnelingEnabled(false)
-                    // 🔥 FIX: Tells ExoPlayer NOT to artificially limit quality based on TV's display size
+                    .setTunnelingEnabled(true)
                     .setExceedAudioConstraintsIfNecessary(true)
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setAllowVideoNonSeamlessAdaptiveness(true)
                     .setAllowAudioMixedMimeTypeAdaptiveness(true)
                     .setAllowAudioMixedChannelCountAdaptiveness(true)
+                    // 🔥 NAYA FIX: Force ExoPlayer to use actual physical TV pixels, not OS UI size
+                    .setViewportSizeToPhysicalDisplaySize(context, true)
                     .setAudioOffloadPreferences(
                         AudioOffloadPreferences.Builder()
                             .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
@@ -208,7 +210,8 @@ class PlayerEngine {
                         true
                     )
                     setHandleAudioBecomingNoisy(true)
-                    setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
+                    // 🔥 REMOVED: setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
+                    // Ab decoder software scaling nahi karega. Aapke TV ka original processor hardware scaling karega.
                     setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
                 }
         }
