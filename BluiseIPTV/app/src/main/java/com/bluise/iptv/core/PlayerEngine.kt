@@ -73,70 +73,25 @@ class PlayerEngine {
             }
         }
 
-        val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+                val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
-            .connectTimeout(5, TimeUnit.SECONDS) 
-            .readTimeout(5, TimeUnit.SECONDS)
-            .writeTimeout(5, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS) // 🔥 Increased to 10s for stable Live TV
+            .readTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .followRedirects(true)
             .followSslRedirects(true)
             .hostnameVerifier { _, _ -> true }
             .cookieJar(cookieJar)
+            // 🔥 Only keeping the 'keep-alive' interceptor (Good for fast HLS chunk downloads)
             .addNetworkInterceptor { chain ->
-                var request = chain.request()
-                val builder = request.newBuilder().header("Connection", "keep-alive")
-                request = builder.build()
+                val request = chain.request().newBuilder()
+                    .header("Connection", "keep-alive")
+                    .build()
                 chain.proceed(request)
             }
-            .addInterceptor { chain ->
-                var request = chain.request()
-                val url     = request.url
-                val urlStr  = url.toString()
-                val host    = url.host
-
-                val isVercel = host.contains("vercel.app", ignoreCase = true)
-                if (isVercel) {
-                    val bustedUrl = url.newBuilder()
-                        .addQueryParameter("_t", System.currentTimeMillis().toString())
-                        .build()
-                    request = request.newBuilder()
-                        .url(bustedUrl)
-                        .cacheControl(CacheControl.FORCE_NETWORK)
-                        .build()
-                }
-
-                if (urlStr.contains("sourcefail", ignoreCase = true)) {
-                    throw IOException("Fake source URL detected - retrying")
-                }
-
-                val response = chain.proceed(request)
-
-                val isM3u8 = urlStr.contains(".m3u8", ignoreCase = true)
-                val isBadHost = FAKE_ENDLIST_HOSTS.any { host.contains(it, ignoreCase = true) }
-
-                if (isM3u8 && isBadHost && response.isSuccessful) {
-                    val cType = response.header("Content-Type", "")?.lowercase() ?: ""
-                    if (cType.contains("text") || cType.contains("mpegurl") || cType.isEmpty()) {
-                        val body = response.body
-                        if (body != null) {
-                            val originalCT = body.contentType()
-                            val content    = body.string()
-                            
-                            if (content.contains("sourcefail", ignoreCase = true) ||
-                                content.contains("#EXT-X-ENDLIST")) {
-                                throw IOException("Fake ENDLIST detected - retrying")
-                            }
-                            
-                            return@addInterceptor response.newBuilder()
-                                .body(content.toResponseBody(originalCT))
-                                .build()
-                        }
-                    }
-                }
-                response
-            }
+            // ❌ SAARA VERCEL, ENDLIST AUR M3U8 READ KARNE WALA KACHRA HATA DIYA GAYA HAI!
             .build()
 
         private fun updateProxyState(context: Context) {
