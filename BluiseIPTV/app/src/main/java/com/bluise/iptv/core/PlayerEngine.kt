@@ -354,12 +354,19 @@ class PlayerEngine {
             if (version != resolverVersion) return
 
             val channelClient = okHttpClient.newBuilder()
-                .addInterceptor { chain ->
-                    val original = chain.request()
-                    val builder  = original.newBuilder()
-                    headers.forEach { (key, value) -> builder.header(key, value) }
-                    chain.proceed(builder.build())
-                }.build()
+    // 🔥 FIX: Changed 'addInterceptor' to 'addNetworkInterceptor'
+    // Ab 302 Redirect hone par bhi player apne headers nahi bhulega!
+    .addNetworkInterceptor { chain ->
+        val original = chain.request()
+        val builder  = original.newBuilder()
+        
+        // Force inject headers on EVERY network hop
+        headers.forEach { (key, value) -> 
+            builder.header(key, value) // .header() overwrites duplicates
+        }
+        
+        chain.proceed(builder.build())
+    }.build()
 
             val httpFactory = OkHttpDataSource.Factory(channelClient)
                 .setUserAgent(userAgent)
