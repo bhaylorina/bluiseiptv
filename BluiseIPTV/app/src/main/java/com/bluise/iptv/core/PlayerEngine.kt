@@ -48,13 +48,23 @@ class PlayerEngine {
 
         private val mainHandler = Handler(Looper.getMainLooper())
 
-        private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+                private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+        
+        // 1. THE COOKIE FIX: Akamai ki zehreeli cookie ('hdntl=expired') ab kabhi save nahi hogi!
         private val cookieJar = object : CookieJar {
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-                cookieStore[url.host] = cookies.toMutableList()
+                val validCookies = cookies.filter { cookie ->
+                    val isExpired = cookie.expiresAt < System.currentTimeMillis()
+                    val isAkamaiPoison = cookie.name.lowercase() == "hdntl" && cookie.value.lowercase() == "expired"
+                    !isExpired && !isAkamaiPoison
+                }
+                if (validCookies.isNotEmpty()) {
+                    cookieStore[url.host] = validCookies.toMutableList()
+                }
             }
             override fun loadForRequest(url: HttpUrl): List<Cookie> {
-                return cookieStore[url.host] ?: emptyList()
+                val cookies = cookieStore[url.host] ?: mutableListOf()
+                return cookies.filter { it.expiresAt > System.currentTimeMillis() }
             }
         }
 
@@ -63,20 +73,13 @@ class PlayerEngine {
             maxRequestsPerHost = 15
         }
 
-        private val FAKE_ENDLIST_HOSTS = setOf("bd.drmlive.net")
-
-        private val ipv4Dns = object : Dns {
-            override fun lookup(hostname: String): List<java.net.InetAddress> {
-                val addrs = Dns.SYSTEM.lookup(hostname)
-                val v4 = addrs.filter { it is Inet4Address }
-                return if (v4.isNotEmpty()) v4 else addrs
-            }
-        }
-
-                val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+        // 2. THE HTTP/2 FIX + CLEAN BUILDER
+        val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
+            // 🔥 YAHAN MAINE FORCE KAR DIYA HAI KI HTTP/2 USE HO! (Doubt cleared)
+            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
-            .connectTimeout(10, TimeUnit.SECONDS) // 🔥 Increased to 10s for stable Live TV
+            .connectTimeout(10, TimeUnit.SECONDS) 
             .readTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
@@ -84,14 +87,12 @@ class PlayerEngine {
             .followSslRedirects(true)
             .hostnameVerifier { _, _ -> true }
             .cookieJar(cookieJar)
-            // 🔥 Only keeping the 'keep-alive' interceptor (Good for fast HLS chunk downloads)
             .addNetworkInterceptor { chain ->
                 val request = chain.request().newBuilder()
                     .header("Connection", "keep-alive")
                     .build()
                 chain.proceed(request)
             }
-            // ❌ SAARA VERCEL, ENDLIST AUR M3U8 READ KARNE WALA KACHRA HATA DIYA GAYA HAI!
             .build()
 
         private fun updateProxyState(context: Context) {
