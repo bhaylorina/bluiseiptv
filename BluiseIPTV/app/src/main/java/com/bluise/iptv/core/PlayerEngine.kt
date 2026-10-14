@@ -132,7 +132,7 @@ class PlayerEngine {
 
             val trackSelector = DefaultTrackSelector(context).apply {
                 parameters = buildUponParameters()
-                    .setTunnelingEnabled(true)
+                    .setTunnelingEnabled(false)
                     .setExceedAudioConstraintsIfNecessary(true)
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setAllowVideoNonSeamlessAdaptiveness(true)
