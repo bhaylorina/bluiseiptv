@@ -119,32 +119,24 @@ class PlayerEngine {
             Thread(r, "resolver-worker").apply { isDaemon = true }
         }
 
-                fun createPlayer(context: Context): ExoPlayer {
+                        fun createPlayer(context: Context): ExoPlayer {
             updateProxyState(context)
 
+            // 🔥 FIX 1: Asynchronous Queueing hata diya (Lip-sync issue yahi se tha)
             val renderersFactory = DefaultRenderersFactory(context)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-                .setMediaCodecSelector(MediaCodecSelector.DEFAULT) // 🔥 Force native Hardware Decoder
                 .setEnableDecoderFallback(true)
-                .apply {
-                    if (android.os.Build.VERSION.SDK_INT >= 23) forceEnableMediaCodecAsynchronousQueueing()
-                }
 
             val trackSelector = DefaultTrackSelector(context).apply {
                 parameters = buildUponParameters()
-                    .setTunnelingEnabled(false)
+                    .setTunnelingEnabled(true)
                     .setExceedAudioConstraintsIfNecessary(true)
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setAllowVideoNonSeamlessAdaptiveness(true)
                     .setAllowAudioMixedMimeTypeAdaptiveness(true)
                     .setAllowAudioMixedChannelCountAdaptiveness(true)
-                    // 🔥 NAYA FIX: Force ExoPlayer to use actual physical TV pixels, not OS UI size
+                    // 🔥 Sharpness (Picture Quality) ke liye isko rakha hai
                     .setViewportSizeToPhysicalDisplaySize(context, true)
-                    .setAudioOffloadPreferences(
-                        AudioOffloadPreferences.Builder()
-                            .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
-                            .build()
-                    )
                     .build()
             }
 
@@ -168,11 +160,10 @@ class PlayerEngine {
                         true
                     )
                     setHandleAudioBecomingNoisy(true)
-                    // 🔥 REMOVED: setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
-                    // Ab decoder software scaling nahi karega. Aapke TV ka original processor hardware scaling karega.
-                    setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
+                    // 🔥 FIX 2: Frame Rate Strategy hata di, ab ExoPlayer default OS sync use karega
                 }
         }
+
 
         fun playChannel(context: Context, player: ExoPlayer, channel: Channel) {
             updateProxyState(context)
