@@ -119,10 +119,9 @@ class PlayerEngine {
             Thread(r, "resolver-worker").apply { isDaemon = true }
         }
 
-                        fun createPlayer(context: Context): ExoPlayer {
+                                fun createPlayer(context: Context): ExoPlayer {
             updateProxyState(context)
 
-            // 🔥 FIX 1: Asynchronous Queueing hata diya (Lip-sync issue yahi se tha)
             val renderersFactory = DefaultRenderersFactory(context)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                 .setEnableDecoderFallback(true)
@@ -135,8 +134,14 @@ class PlayerEngine {
                     .setAllowVideoNonSeamlessAdaptiveness(true)
                     .setAllowAudioMixedMimeTypeAdaptiveness(true)
                     .setAllowAudioMixedChannelCountAdaptiveness(true)
-                    // 🔥 Sharpness (Picture Quality) ke liye isko rakha hai
+                    // 🔥 SHARPNESS FIX: TV ki actual hardware resolution target karega
                     .setViewportSizeToPhysicalDisplaySize(context, true)
+                    // 🔥 LIP-SYNC FIX: Audio ko TV ke hardware DSP mein delay hone se rokega
+                    .setAudioOffloadPreferences(
+                        AudioOffloadPreferences.Builder()
+                            .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
+                            .build()
+                    )
                     .build()
             }
 
@@ -160,9 +165,9 @@ class PlayerEngine {
                         true
                     )
                     setHandleAudioBecomingNoisy(true)
-                    // 🔥 FIX 2: Frame Rate Strategy hata di, ab ExoPlayer default OS sync use karega
                 }
         }
+
 
 
         fun playChannel(context: Context, player: ExoPlayer, channel: Channel) {
