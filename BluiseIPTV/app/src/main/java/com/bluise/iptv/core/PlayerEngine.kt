@@ -126,17 +126,15 @@ class PlayerEngine {
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                 .setEnableDecoderFallback(true)
 
-            val trackSelector = DefaultTrackSelector(context).apply {
+                        val trackSelector = DefaultTrackSelector(context).apply {
                 parameters = buildUponParameters()
-                    .setTunnelingEnabled(false)
+                    .setTunnelingEnabled(true) // Try setting this to true later if you want to test hardware sync
                     .setExceedAudioConstraintsIfNecessary(true)
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setAllowVideoNonSeamlessAdaptiveness(true)
-                    .setAllowAudioMixedMimeTypeAdaptiveness(true)
-                    .setAllowAudioMixedChannelCountAdaptiveness(true)
-                    // 🔥 SHARPNESS FIX: TV ki actual hardware resolution target karega
+                    .setAllowAudioMixedMimeTypeAdaptiveness(false) // 🔥 Changed to false
+                    .setAllowAudioMixedChannelCountAdaptiveness(false) // 🔥 Changed to false
                     .setViewportSizeToPhysicalDisplaySize(context, true)
-                    // 🔥 LIP-SYNC FIX: Audio ko TV ke hardware DSP mein delay hone se rokega
                     .setAudioOffloadPreferences(
                         AudioOffloadPreferences.Builder()
                             .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
@@ -402,7 +400,12 @@ class PlayerEngine {
                 }
             }
 
-            val liveConfig = MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(25_000).build()
+            val liveConfig = MediaItem.LiveConfiguration.Builder()
+    .setTargetOffsetMs(25_000)
+    .setMinPlaybackSpeed(1f)
+    .setMaxPlaybackSpeed(1f)
+    .build()
+
 
             val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl).setLiveConfiguration(liveConfig)
             forcedMimeType?.let { mediaItemBuilder.setMimeType(it) }
