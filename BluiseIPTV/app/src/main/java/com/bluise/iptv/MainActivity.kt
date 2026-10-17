@@ -1577,10 +1577,15 @@ class MainActivity : AppCompatActivity() {
                         val inputStream = contentResolver.openInputStream(uri) ?: throw Exception("Cannot open file")
                         inputStream.use { IptvParser().parse(it) }
                     } else {
-                        val request = okhttp3.Request.Builder()
-                                .url(m3uUrl)
-                                .header("User-Agent", "Mozilla/5.0")
-                                .build()
+                        val requestBuilder = okhttp3.Request.Builder()
+    .url(m3uUrl)
+    .header("User-Agent", "Mozilla/5.0")
+
+if (android.net.Uri.parse(m3uUrl).host == "custard-recast-moonlit.ngrok-free.dev") {
+    requestBuilder.header("ngrok-skip-browser-warning", "1")
+}
+
+val request = requestBuilder.build()
                         if (Thread.currentThread().isInterrupted) return@submit
                         val response = PlayerEngine.okHttpClient.newCall(request).execute()
                         response.use { resp ->
