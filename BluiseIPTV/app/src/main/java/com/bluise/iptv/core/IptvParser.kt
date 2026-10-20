@@ -4,6 +4,7 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
+import java.io.PushbackInputStream
 import java.net.URLDecoder
 import java.util.regex.Pattern
 
@@ -51,14 +52,22 @@ class IptvParser {
     private var insideExtInf               = false
 
     fun parse(input: InputStream): ArrayList<Channel> {
-        val bytes = input.use { it.readBytes() }
-        val text  = bytes.toString(Charsets.UTF_8).trimStart()
+        // Memory Optimization: Use PushbackInputStream to read just the first character 
+        // to detect JSON vs M3U without loading the entire stream into RAM.
+        val pbis = PushbackInputStream(input, 1)
+        var c = pbis.read()
+        
+        while (c != -1 && c.toChar().isWhitespace()) {
+            c = pbis.read()
+        }
+        
+        if (c != -1) {
+            pbis.unread(c)
+        }
 
-        return when {
-            text.startsWith("[") || text.startsWith("{") ->
-                parseJson(text.byteInputStream(Charsets.UTF_8))
-            else ->
-                parseM3U(text.byteInputStream(Charsets.UTF_8))
+        return when (c.toChar()) {
+            '[', '{' -> parseJson(pbis)
+            else -> parseM3U(pbis)
         }
     }
 
@@ -68,14 +77,12 @@ class IptvParser {
 
         try {
             input.use { stream ->
-                stream.bufferedReader(Charsets.UTF_8)
-                    .lineSequence()
-                    .forEach { line ->
-                        val trim = line.trim()
-                        if (trim.isNotEmpty()) {
-                            processLine(trim, channels)
-                        }
+                stream.bufferedReader(Charsets.UTF_8).forEachLine { line ->
+                    val trim = line.trim()
+                    if (trim.isNotEmpty()) {
+                        processLine(trim, channels)
                     }
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "M3U parse failed: ${e.message}", e)
@@ -99,7 +106,8 @@ class IptvParser {
     private fun handleExtInf(line: String) {
         insideExtInf = true
         val lastComma = line.lastIndexOf(',')
-        currentTitle = if (lastComma != -1 && lastComma < line.length - 1) {
+        
+        val fallbackTitle = if (lastComma != -1 && lastComma < line.length - 1) {
             line.substring(lastComma + 1).trim().ifEmpty { null }
         } else null
 
@@ -112,16 +120,16 @@ class IptvParser {
             when (attrKey) {
                 "tvg-logo", "logo"          -> currentLogo = attrVal
                 "group-title"               -> currentGroup = attrVal
-                "tvg-name"                  -> {
-                    if (currentTitle.isNullOrEmpty()) currentTitle = attrVal
-                }
+                "tvg-name"                  -> currentTitle = attrVal // tvg-name is strictly prioritized over comma title
                 "keyid", "kid", "drm-keyid" -> currentKeyId = attrVal.replace("-", "")
-                
-                // 🔥 FIX: Handles both license_key and licence_key for EXTINF tags
                 "key", "license_key", "licence_key", "drm-key" -> currentKey = attrVal
-                
                 "user-agent"                -> if (currentUa == null) currentUa = attrVal
             }
+        }
+        
+        // Use comma-separated title only if tvg-name was missing
+        if (currentTitle.isNullOrEmpty()) {
+            currentTitle = fallbackTitle
         }
     }
 
@@ -149,6 +157,7 @@ class IptvParser {
                     "referer", "referrer" -> if (currentReferer == null) currentReferer = v
                     "cookie"              -> if (currentCookie == null) currentCookie = v
                     "origin"              -> currentHeaders.putIfAbsent("Origin", v)
+                    else                  -> currentHeaders[k] = v // Catches Hotstar specific headers (x-hs-*)
                 }
             }
         } catch (e: Exception) { }
@@ -164,7 +173,6 @@ class IptvParser {
         if (propVal.isEmpty()) return
 
         when (propKey) {
-            // 🔥 FIX: Added both 'license' and 'licence' spellings to keep it safe for all providers
             "inputstream.adaptive.license_type", 
             "inputstream.adaptive.licence_type"   -> currentDrmScheme = propVal
             
@@ -190,6 +198,12 @@ class IptvParser {
             "http-user-agent", "http_user_agent", "sout-http-user-agent" -> if (currentUa == null) currentUa = optVal
             "http-referrer", "http-referer", "http_referrer", "http_referer" -> if (currentReferer == null) currentReferer = optVal
             "http-cookie", "http_cookie" -> if (currentCookie == null) currentCookie = optVal
+            "http-extra-headers", "http_extra_headers" -> {
+                val parts = optVal.split(":", limit = 2)
+                if (parts.size == 2) {
+                    currentHeaders[parts[0].trim()] = parts[1].trim()
+                }
+            }
         }
     }
 
@@ -274,7 +288,6 @@ class IptvParser {
             val rawValue  = part.substring(eqIdx + 1).trim()
             if (rawKey.isEmpty() || rawValue.isEmpty()) return@forEach
 
-            // 🔥 FIX: Decode URL-encoded headers (like %20, %3A, %3D) safely for JioTV
             val value = try {
                 URLDecoder.decode(rawValue, "UTF-8")
             } catch (e: Exception) {
@@ -346,7 +359,6 @@ class IptvParser {
         val rawUa = obj.optString("user_agent", "").trim().ifBlank { obj.optString("user-agent", "").trim().ifBlank { null } }
         val userAgent = rawUa?.let { resolveUaAlias(it) }
 
-        // 🔥 FIX: Covers license_url, drm_license_url AND licence_url
         val licenseUrl = obj.optString("license_url", "").trim().ifBlank { 
             obj.optString("drm_license_url", "").trim().ifBlank { 
                 obj.optString("licence_url", "").trim().ifBlank { null } 
@@ -366,7 +378,6 @@ class IptvParser {
         var parsedKeyId: String? = obj.optString("key_id", "").trim().ifBlank { obj.optString("kid", "").trim().ifBlank { null } }?.replace("-", "")
         var parsedKey: String? = obj.optString("key", "").trim().ifBlank { null }
 
-        // 🔥 FIX: Covers license_key AND licence_key for JSON
         val rawLicenseKey = obj.optString("license_key", "").trim().ifBlank { 
             obj.optString("licence_key", "").trim().ifBlank { null } 
         }
@@ -480,5 +491,4 @@ class IptvParser {
         currentUa = null; currentCookie = null; currentReferer = null; currentDrmScheme = null
         currentHeaders.clear(); insideExtInf = false
     }
-                                                   }
-                                                   
+}
