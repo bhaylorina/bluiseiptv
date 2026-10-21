@@ -7,7 +7,7 @@
     android:gravity="center_vertical"
     android:background="?android:attr/selectableItemBackground">
 
-    <!-- Same Logo as before -->
+    <!-- Logo -->
     <ImageView
         android:id="@+id/imgLogo"
         android:layout_width="60dp"
@@ -16,7 +16,7 @@
         android:layout_marginEnd="12dp"
         android:src="@android:drawable/ic_menu_gallery"/>
 
-    <!-- NAYA BLOCK: EPG Layout jo Center mein aayega -->
+    <!-- EPG Layout -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -25,13 +25,14 @@
         android:layout_marginEnd="12dp"
         android:gravity="center_vertical">
 
-        <!-- Purana Channel Name (Thoda chota kiya taaki Program name highlight ho) -->
+        <!-- 🔥 Channel Name (Bada aur Bold kiya, Color White kiya) -->
         <TextView
             android:id="@+id/tvChannelName"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="#CCCCCC"
-            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold"
             android:singleLine="true"
             android:ellipsize="end"/>
 
@@ -43,14 +44,14 @@
             android:layout_marginTop="2dp"
             android:gravity="bottom">
 
+            <!-- 🔥 Program Title (Thoda chota aur light grey kiya) -->
             <TextView
                 android:id="@+id/tvProgramTitle"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp"
-                android:textStyle="bold"
+                android:textColor="#CCCCCC"
+                android:textSize="13sp"
                 android:singleLine="true"
                 android:ellipsize="end"
                 android:text="No EPG teleguide"/>
@@ -65,7 +66,7 @@
                 android:text=""/>
         </LinearLayout>
 
-        <!-- EPG Progress Bar (Sky Blue theme) -->
+        <!-- Progress Bar -->
         <ProgressBar
             android:id="@+id/pbEpgProgress"
             style="?android:attr/progressBarStyleHorizontal"
@@ -79,7 +80,7 @@
 
     </LinearLayout>
 
-    <!-- Same Fav button as before -->
+    <!-- Fav button -->
     <ImageView
         android:id="@+id/imgFav"
         android:layout_width="40dp"
