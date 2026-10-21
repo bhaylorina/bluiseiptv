@@ -28,7 +28,7 @@ object EpgManager {
     
     var onEpgLoaded: (() -> Unit)? = null
 
-    fun fetchEpgInBackground(epgUrl: String = "https://epgshare01.online/epgshare01/epg_ripper_ALL_SOURCES1.xml.gz") {
+    fun fetchEpgInBackground(epgUrl: String = "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz") {
         val now = System.currentTimeMillis()
         if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) {
             Log.d(TAG, "Cache valid, download skipped.")
