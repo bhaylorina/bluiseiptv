@@ -1,11 +1,10 @@
 package com.bluise.iptv.core
 
 import android.util.Log
+import okhttp3.Request
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.zip.GZIPInputStream
@@ -18,58 +17,74 @@ data class EpgProgram(
 )
 
 object EpgManager {
-    private const val TAG = "EpgManager"
+    private const val TAG = "EpgManagerDebug" // 🔥 NAYA: Logcat mein search karne ke liye
     
     val epgData = HashMap<String, ArrayList<EpgProgram>>()
     val channelNames = HashMap<String, String>()
     var isEpgLoaded = false
     
     var lastEpgLoadTime = 0L 
-    private const val CACHE_EXPIRY_MS = 12 * 60 * 60 * 1000L // 12 Ghante
+    private const val CACHE_EXPIRY_MS = 12 * 60 * 60 * 1000L 
     
     var onEpgLoaded: (() -> Unit)? = null
 
-    fun fetchEpgInBackground(epgUrl: String = "https://raw.githubusercontent.com/arnab8820/JioTV-epg/main/epg1d.xml.gz") {
+    // 🔥 NAYA: Mitthu786 ka live updating URL
+    fun fetchEpgInBackground(epgUrl: String = "https://avkb.short.gy/jioepg.xml.gz") {
         val now = System.currentTimeMillis()
-        if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) return 
+        if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) {
+            Log.d(TAG, "Cache valid, download skipped.")
+            return 
+        }
 
         thread {
             try {
+                Log.d(TAG, "STEP 1: Downloading EPG from $epgUrl")
+                
+                // 🔥 NAYA: OkHttp use kiya taaki URL Redirects fail na ho
+                val request = Request.Builder().url(epgUrl).build()
+                val response = PlayerEngine.okHttpClient.newCall(request).execute()
+                
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Download Failed. HTTP Code: ${response.code}")
+                    return@thread
+                }
+
+                Log.d(TAG, "STEP 2: Download Success! Extracting file...")
+                var inputStream = response.body?.byteStream() ?: return@thread
+                
+                val contentType = response.header("Content-Type", "") ?: ""
+                val isGzip = epgUrl.endsWith(".gz") || response.request.url.toString().endsWith(".gz") || contentType.contains("gzip")
+                
+                if (isGzip) {
+                    inputStream = GZIPInputStream(inputStream)
+                }
+                
                 if (isEpgLoaded) {
                     epgData.clear()
                     channelNames.clear()
                 }
-
-                val connection = URL(epgUrl).openConnection() as HttpURLConnection
-                connection.connectTimeout = 15000
-                connection.readTimeout = 60000
                 
-                var inputStream = connection.inputStream
-                if (epgUrl.endsWith(".gz")) {
-                    inputStream = GZIPInputStream(inputStream)
-                }
-                
+                Log.d(TAG, "STEP 3: Parsing XML Data (Yeh 2-3 sec lega)...")
                 parseXmltv(inputStream)
                 
                 isEpgLoaded = true
                 lastEpgLoadTime = System.currentTimeMillis()
                 
-                // Success hone par list refresh karega
+                Log.d(TAG, "STEP 4: Done! Total Channels: ${channelNames.size}, Programs: ${epgData.size}")
                 onEpgLoaded?.invoke()
+                
             } catch (e: Exception) {
                 Log.e(TAG, "EPG Fetch Error: ${e.message}")
             }
         }
     }
 
-    // 🔥 NAYA: Bulletproof Date Parser (Kabhi fail nahi hoga)
     private fun parseTime(timeStr: String?): Long {
         if (timeStr.isNullOrEmpty()) return 0L
         return try {
-            // Sirf shuru ke 14 numbers nikalega (yyyyMMddHHmmss)
             val cleanStr = if (timeStr.length >= 14) timeStr.substring(0, 14) else timeStr
             val format = SimpleDateFormat("yyyyMMddHHmmss", Locale.ENGLISH)
-            format.timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata") // Fix Indian Time
+            format.timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
             format.parse(cleanStr)?.time ?: 0L
         } catch (e: Exception) {
             0L
@@ -106,7 +121,6 @@ object EpgManager {
                         } else if (tagName.equals("programme", ignoreCase = true)) {
                             insideProgramme = true
                             currentChannelId = parser.getAttributeValue(null, "channel") ?: ""
-                            // 🔥 Yahan Naya Date parser lagaya hai
                             startMs = parseTime(parser.getAttributeValue(null, "start"))
                             endMs = parseTime(parser.getAttributeValue(null, "stop"))
                             currentTitle = ""
@@ -118,7 +132,6 @@ object EpgManager {
                         if (tagName.equals("channel", ignoreCase = true)) {
                             insideChannel = false
                         } else if (tagName.equals("programme", ignoreCase = true)) {
-                            // Agar time 0L nahi hai tabhi save karega
                             if (currentChannelId.isNotEmpty() && currentTitle.isNotEmpty() && startMs > 0L) {
                                 if (!epgData.containsKey(currentChannelId)) {
                                     epgData[currentChannelId] = ArrayList()
@@ -136,16 +149,19 @@ object EpgManager {
         }
     }
 
-    // 🔥 NAYA: Aggressive Name Matching (Spaces aur Symbols ignore karega)
     fun getCurrentProgram(tvgId: String?, channelName: String): EpgProgram? {
         val now = System.currentTimeMillis()
 
+        // ID se match
         if (!tvgId.isNullOrEmpty() && epgData.containsKey(tvgId)) {
             val prog = epgData[tvgId]?.firstOrNull { now in it.startMs..it.endMs }
-            if (prog != null) return prog
+            if (prog != null) {
+                Log.d(TAG, "✅ Match [ID]: $tvgId -> ${prog.title}")
+                return prog
+            }
         }
 
-        // Channel ke naam se saare symbols aur space hata dega ("DD National" -> "ddnational")
+        // Naam se match
         val cleanSearchName = channelName.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("hd", "").replace("in", "")
         
         for ((id, programs) in epgData) {
@@ -153,16 +169,18 @@ object EpgManager {
             val cleanId = id.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("in", "")
             val cleanRealName = realName.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("hd", "")
 
-            // 100% accurate match karega
             if (cleanId == cleanSearchName || cleanId.contains(cleanSearchName) || cleanSearchName.contains(cleanId) ||
                 cleanRealName == cleanSearchName || cleanRealName.contains(cleanSearchName) || cleanSearchName.contains(cleanRealName)
             ) {
                 val activeProgram = programs.firstOrNull { now in it.startMs..it.endMs }
                 if (activeProgram != null) {
+                    Log.d(TAG, "✅ Match [Name]: '$channelName' matched with '$realName' -> ${activeProgram.title}")
                     return activeProgram
                 }
             }
         }
+        
+        Log.d(TAG, "❌ Failed: No program active for '$channelName' (Time: $now)")
         return null
     }
 }
