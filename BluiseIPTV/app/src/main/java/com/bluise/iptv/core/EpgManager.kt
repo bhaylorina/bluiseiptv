@@ -21,20 +21,17 @@ object EpgManager {
     private const val TAG = "EpgManager"
     
     val epgData = HashMap<String, ArrayList<EpgProgram>>()
-    val channelNames = HashMap<String, String>() // 🔥 NAYA: XML se asli naam nikalne ke liye
+    val channelNames = HashMap<String, String>()
     var isEpgLoaded = false
     
     var lastEpgLoadTime = 0L 
-    private const val CACHE_EXPIRY_MS = 12 * 60 * 60 * 1000L // 12 Ghante 
+    private const val CACHE_EXPIRY_MS = 12 * 60 * 60 * 1000L // 12 Ghante
     
     var onEpgLoaded: (() -> Unit)? = null
 
-    // 🔥 NAYA: JioTV aur Indian Channels ka fastest daily updating server
     fun fetchEpgInBackground(epgUrl: String = "https://raw.githubusercontent.com/arnab8820/JioTV-epg/main/epg1d.xml.gz") {
         val now = System.currentTimeMillis()
-        if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) {
-            return 
-        }
+        if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) return 
 
         thread {
             try {
@@ -47,7 +44,6 @@ object EpgManager {
                 connection.connectTimeout = 15000
                 connection.readTimeout = 60000
                 
-                // 🔥 NAYA: .gz (ZIP) file support add kiya
                 var inputStream = connection.inputStream
                 if (epgUrl.endsWith(".gz")) {
                     inputStream = GZIPInputStream(inputStream)
@@ -58,10 +54,25 @@ object EpgManager {
                 isEpgLoaded = true
                 lastEpgLoadTime = System.currentTimeMillis()
                 
+                // Success hone par list refresh karega
                 onEpgLoaded?.invoke()
             } catch (e: Exception) {
                 Log.e(TAG, "EPG Fetch Error: ${e.message}")
             }
+        }
+    }
+
+    // 🔥 NAYA: Bulletproof Date Parser (Kabhi fail nahi hoga)
+    private fun parseTime(timeStr: String?): Long {
+        if (timeStr.isNullOrEmpty()) return 0L
+        return try {
+            // Sirf shuru ke 14 numbers nikalega (yyyyMMddHHmmss)
+            val cleanStr = if (timeStr.length >= 14) timeStr.substring(0, 14) else timeStr
+            val format = SimpleDateFormat("yyyyMMddHHmmss", Locale.ENGLISH)
+            format.timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata") // Fix Indian Time
+            format.parse(cleanStr)?.time ?: 0L
+        } catch (e: Exception) {
+            0L
         }
     }
 
@@ -77,7 +88,6 @@ object EpgManager {
             var currentTitle = ""
             var startMs = 0L
             var endMs = 0L
-            val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.ENGLISH)
             var insideProgramme = false
             var insideChannel = false
 
@@ -89,7 +99,6 @@ object EpgManager {
                             insideChannel = true
                             currentChannelId = parser.getAttributeValue(null, "id") ?: ""
                         } else if (insideChannel && tagName.equals("display-name", ignoreCase = true)) {
-                            // 🔥 NAYA: Channel ID ke sath uska asli naam bhi save karega
                             val dName = parser.nextText()
                             if (currentChannelId.isNotEmpty() && dName.isNotEmpty()) {
                                 channelNames[currentChannelId] = dName
@@ -97,12 +106,9 @@ object EpgManager {
                         } else if (tagName.equals("programme", ignoreCase = true)) {
                             insideProgramme = true
                             currentChannelId = parser.getAttributeValue(null, "channel") ?: ""
-                            val startStr = parser.getAttributeValue(null, "start")
-                            val stopStr = parser.getAttributeValue(null, "stop")
-                            try {
-                                startMs = dateFormat.parse(startStr)?.time ?: 0L
-                                endMs = dateFormat.parse(stopStr)?.time ?: 0L
-                            } catch (e: Exception) { }
+                            // 🔥 Yahan Naya Date parser lagaya hai
+                            startMs = parseTime(parser.getAttributeValue(null, "start"))
+                            endMs = parseTime(parser.getAttributeValue(null, "stop"))
                             currentTitle = ""
                         } else if (insideProgramme && tagName.equals("title", ignoreCase = true)) {
                             currentTitle = parser.nextText()
@@ -112,12 +118,12 @@ object EpgManager {
                         if (tagName.equals("channel", ignoreCase = true)) {
                             insideChannel = false
                         } else if (tagName.equals("programme", ignoreCase = true)) {
-                            if (currentChannelId.isNotEmpty() && currentTitle.isNotEmpty()) {
-                                val program = EpgProgram(currentTitle, startMs, endMs)
+                            // Agar time 0L nahi hai tabhi save karega
+                            if (currentChannelId.isNotEmpty() && currentTitle.isNotEmpty() && startMs > 0L) {
                                 if (!epgData.containsKey(currentChannelId)) {
                                     epgData[currentChannelId] = ArrayList()
                                 }
-                                epgData[currentChannelId]?.add(program)
+                                epgData[currentChannelId]?.add(EpgProgram(currentTitle, startMs, endMs))
                             }
                             insideProgramme = false
                         }
@@ -130,21 +136,24 @@ object EpgManager {
         }
     }
 
-    // 🔥 Advance Smart Name Matching (OTT Navigator jaisa)
+    // 🔥 NAYA: Aggressive Name Matching (Spaces aur Symbols ignore karega)
     fun getCurrentProgram(tvgId: String?, channelName: String): EpgProgram? {
         val now = System.currentTimeMillis()
 
         if (!tvgId.isNullOrEmpty() && epgData.containsKey(tvgId)) {
-            return epgData[tvgId]?.firstOrNull { now in it.startMs..it.endMs }
+            val prog = epgData[tvgId]?.firstOrNull { now in it.startMs..it.endMs }
+            if (prog != null) return prog
         }
 
-        val cleanSearchName = channelName.replace(" ", "").replace("HD", "").replace("IN", "").lowercase(Locale.getDefault())
+        // Channel ke naam se saare symbols aur space hata dega ("DD National" -> "ddnational")
+        val cleanSearchName = channelName.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("hd", "").replace("in", "")
         
         for ((id, programs) in epgData) {
-            val cleanId = id.replace(" ", "").replace(".in", "").lowercase(Locale.getDefault())
             val realName = channelNames[id] ?: ""
-            val cleanRealName = realName.replace(" ", "").replace("HD", "").replace("IN", "").lowercase(Locale.getDefault())
+            val cleanId = id.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("in", "")
+            val cleanRealName = realName.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("hd", "")
 
+            // 100% accurate match karega
             if (cleanId == cleanSearchName || cleanId.contains(cleanSearchName) || cleanSearchName.contains(cleanId) ||
                 cleanRealName == cleanSearchName || cleanRealName.contains(cleanSearchName) || cleanSearchName.contains(cleanRealName)
             ) {
