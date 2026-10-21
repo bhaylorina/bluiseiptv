@@ -20,6 +20,7 @@ import android.util.Rational
 import android.view.*
 import android.widget.*
 import androidx.activity.OnBackPressedCallback
+import com.bluise.iptv.core.EpgManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
@@ -1955,7 +1956,7 @@ val request = requestBuilder.build()
         }
     }
 
-        inner class ChannelAdapter(
+            inner class ChannelAdapter(
         context: Context,
         private val items: ArrayList<Channel>
     ) : ArrayAdapter<Channel>(context, 0, items) {
@@ -1969,7 +1970,6 @@ val request = requestBuilder.build()
             val imgLogo = view.findViewById<ImageView>(R.id.imgLogo)
             val imgFav = view.findViewById<ImageView>(R.id.imgFav)
             
-            // 🔥 NAYA ADD KIYA: EPG ke naye XML design ko code se link kiya
             val tvProgramTitle = view.findViewById<TextView>(R.id.tvProgramTitle)
             val tvProgramTime = view.findViewById<TextView>(R.id.tvProgramTime)
             val pbEpgProgress = view.findViewById<ProgressBar>(R.id.pbEpgProgress)
@@ -1979,34 +1979,30 @@ val request = requestBuilder.build()
             tvName?.text = channel.name
             tvName?.setTextColor(Color.WHITE)
 
-                        // 🔥 STEP 3 LOGIC: Asli EPG Data yahan match hoga!
+            // 🔥 STEP 3 LOGIC: Mobile Friendly Code (No Syntax Error)
             if (tvProgramTitle != null) {
-                // Channel ki tvgId se aaj ka program nikalenge
-                val currentProgram = EpgManager.getCurrentProgram(channel.tvgId)
+                val prog = EpgManager.getCurrentProgram(channel.tvgId)
                 
-                if (currentProgram != null) {
-                    tvProgramTitle.text = currentProgram.title
+                if (prog != null) {
+                    tvProgramTitle.text = prog.title
                     
-                    // Time ko AM/PM format mein convert karna
                     val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
-                    val startStr = sdf.format(java.util.Date(currentProgram.startMs))
-                    val endStr = sdf.format(java.util.Date(currentProgram.endMs))
-                    tvProgramTime?.text = "$startStr - $endStr"
+                    val sTime = sdf.format(java.util.Date(prog.startMs))
+                    val eTime = sdf.format(java.util.Date(prog.endMs))
+                    tvProgramTime?.text = "$sTime - $eTime"
                     
-                    // Progress bar calculate karna
                     val now = System.currentTimeMillis()
-                    val totalDuration = currentProgram.endMs - currentProgram.startMs
-                    val elapsed = now - currentProgram.startMs
+                    val total = prog.endMs - prog.startMs
+                    val elap = now - prog.startMs
                     
-                    if (totalDuration > 0 && elapsed > 0) {
-                        val progressPercentage = ((elapsed.toFloat() / totalDuration.toFloat()) * 100).toInt()
-                        pbEpgProgress?.progress = progressPercentage
+                    if (total > 0 && elap > 0) {
+                        val pct = ((elap.toFloat() / total.toFloat()) * 100).toInt()
+                        pbEpgProgress?.progress = pct
                         pbEpgProgress?.visibility = View.VISIBLE
                     } else {
                         pbEpgProgress?.visibility = View.INVISIBLE
                     }
                 } else {
-                    // Agar channel ka EPG nahi mila, toh wapas default text
                     tvProgramTitle.text = "No EPG teleguide"
                     tvProgramTime?.text = ""
                     pbEpgProgress?.progress = 0
@@ -2060,4 +2056,5 @@ val request = requestBuilder.build()
 
             return view
         }
-        }
+    }
+}
