@@ -247,8 +247,7 @@ class MainActivity : AppCompatActivity() {
             }
             
             // 🔥 JioTV EPG Download start (Naya Fast Server)
-            EpgManager.fetchEpgInBackground("https://raw.githubusercontent.com/arnab8820/JioTV-epg/main/epg1d.xml.gz")
-
+            EpgManager.fetchEpgInBackground()
         } catch (e: Throwable) {}
     }
 
