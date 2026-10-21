@@ -238,13 +238,14 @@ class MainActivity : AppCompatActivity() {
             loadPlaylists()
             forceReloadAllPlaylists()
             setupGestures()
-            // 🔥 NAYA ADD KIYA: Background mein EPG download start karega aur UI refresh karega
-            EpgManager.onEpgLoaded = {
-                runOnUiThread {
-                    channelAdapter?.notifyDataSetChanged()
-                }
-            }
-            EpgManager.fetchEpgInBackground()
+            // 🔥 NAYA ADD KIYA: Background mein EPG download start karega aur UI refres...
+EpgManager.onEpgLoaded = {
+    runOnUiThread {
+        channelAdapter?.notifyDataSetChanged()
+    }
+}
+EpgManager.fetchEpgInBackground()
+
         } catch (e: Throwable) {}
     }
 
