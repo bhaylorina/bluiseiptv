@@ -29,20 +29,25 @@ object EpgManager {
     private const val CACHE_EXPIRY_MS = 12 * 60 * 60 * 1000L 
     var onEpgLoaded: (() -> Unit)? = null
 
-    fun fetchEpgInBackground(epgUrl: String = "https://www.dropbox.com/scl/fi/s986xqczdsn77t1umeqdu/epg.xml.gz?rlkey=z7tlltik2tu75jjb35lh1vci5&st=fm6xgo12&dl=1") {
+        // NAYA URL: 'www.dropbox.com' ki jagah 'dl.dropboxusercontent.com' lagaya hai aur '&dl=1' hata diya hai
+    fun fetchEpgInBackground(epgUrl: String = "https://dl.dropboxusercontent.com/scl/fi/s986xqczdsn77t1umeqdu/epg.xml.gz?rlkey=z7tlltik2tu75jjb35lh1vci5&st=fm6xgo12") {
         val now = System.currentTimeMillis()
         if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) return 
 
         thread {
             try {
-                val request = Request.Builder().url(epgUrl).build()
+                val request = Request.Builder()
+                    .url(epgUrl)
+                    .build()
                 val response = PlayerEngine.okHttpClient.newCall(request).execute()
                 
                 if (!response.isSuccessful) return@thread
 
                 var inputStream = response.body?.byteStream() ?: return@thread
                 val contentType = response.header("Content-Type", "") ?: ""
-                val isGzip = epgUrl.endsWith(".gz") || response.request.url.toString().endsWith(".gz") || contentType.contains("gzip")
+                
+                // BUG FIX: .endsWith ki jagah .contains lagaya, kyunki URL ke aage parameters hain
+                val isGzip = epgUrl.contains(".gz") || response.request.url.toString().contains(".gz") || contentType.contains("gzip")
                 
                 if (isGzip) {
                     inputStream = GZIPInputStream(inputStream)
@@ -61,29 +66,6 @@ object EpgManager {
                 
             } catch (e: Exception) {
                 Log.e(TAG, "EPG Error: ${e.message}")
-            }
-        }
-    }
-
-    // NAYA: Code clean karne ka function (Sirf background mein chalega)
-    private fun cleanName(name: String): String {
-        return name.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("hd", "").replace("in", "")
-    }
-
-    // NAYA: 100% Accurate Time Zone Parser (+0530 ko exact read karega)
-    private fun parseTime(timeStr: String?): Long {
-        if (timeStr.isNullOrEmpty()) return 0L
-        return try {
-            val format = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.ENGLISH)
-            format.parse(timeStr.trim())?.time ?: 0L
-        } catch (e: Exception) {
-            try {
-                val cleanStr = if (timeStr.length >= 14) timeStr.substring(0, 14) else timeStr
-                val fallbackFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.ENGLISH)
-                fallbackFormat.timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
-                fallbackFormat.parse(cleanStr)?.time ?: 0L
-            } catch (ex: Exception) {
-                0L
             }
         }
     }
