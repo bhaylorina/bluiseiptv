@@ -238,13 +238,16 @@ class MainActivity : AppCompatActivity() {
             loadPlaylists()
             forceReloadAllPlaylists()
             setupGestures()
-            // 🔥 NAYA ADD KIYA: Background mein EPG download start karega aur UI refres...
-EpgManager.onEpgLoaded = {
-    runOnUiThread {
-        channelAdapter?.notifyDataSetChanged()
-    }
-}
-EpgManager.fetchEpgInBackground()
+                        // 🔥 YEH CODE DALNA BOHOT ZAROORI HAI (UI REFRESH KE LIYE)
+            EpgManager.onEpgLoaded = {
+                runOnUiThread {
+                    channelAdapter?.notifyDataSetChanged()
+                    channelListView?.invalidateViews() 
+                }
+            }
+            
+            // 🔥 JioTV EPG Download start (Naya Fast Server)
+            EpgManager.fetchEpgInBackground("https://raw.githubusercontent.com/arnab8820/JioTV-epg/main/epg1d.xml.gz")
 
         } catch (e: Throwable) {}
     }
