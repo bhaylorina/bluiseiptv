@@ -17,7 +17,7 @@ data class EpgProgram(
 )
 
 object EpgManager {
-    private const val TAG = "EpgManagerDebug" // 🔥 NAYA: Logcat mein search karne ke liye
+    private const val TAG = "EpgManagerDebug" 
     
     val epgData = HashMap<String, ArrayList<EpgProgram>>()
     val channelNames = HashMap<String, String>()
@@ -28,7 +28,6 @@ object EpgManager {
     
     var onEpgLoaded: (() -> Unit)? = null
 
-    // 🔥 NAYA: Mitthu786 ka live updating URL
     fun fetchEpgInBackground(epgUrl: String = "https://avkb.short.gy/jioepg.xml.gz") {
         val now = System.currentTimeMillis()
         if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) {
@@ -40,7 +39,6 @@ object EpgManager {
             try {
                 Log.d(TAG, "STEP 1: Downloading EPG from $epgUrl")
                 
-                // 🔥 NAYA: OkHttp use kiya taaki URL Redirects fail na ho
                 val request = Request.Builder().url(epgUrl).build()
                 val response = PlayerEngine.okHttpClient.newCall(request).execute()
                 
@@ -152,35 +150,50 @@ object EpgManager {
     fun getCurrentProgram(tvgId: String?, channelName: String): EpgProgram? {
         val now = System.currentTimeMillis()
 
-        // ID se match
+        // 1. Pehle match karne ki koshish karega ID se
+        var matchedPrograms: ArrayList<EpgProgram>? = null
         if (!tvgId.isNullOrEmpty() && epgData.containsKey(tvgId)) {
-            val prog = epgData[tvgId]?.firstOrNull { now in it.startMs..it.endMs }
-            if (prog != null) {
-                Log.d(TAG, "✅ Match [ID]: $tvgId -> ${prog.title}")
-                return prog
-            }
+            matchedPrograms = epgData[tvgId]
         }
 
-        // Naam se match
-        val cleanSearchName = channelName.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("hd", "").replace("in", "")
-        
-        for ((id, programs) in epgData) {
-            val realName = channelNames[id] ?: ""
-            val cleanId = id.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("in", "")
-            val cleanRealName = realName.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("hd", "")
+        // 2. Agar ID nahi mili, toh Naam se match karega
+        if (matchedPrograms == null) {
+            val cleanSearchName = channelName.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("hd", "").replace("in", "")
+            for ((id, programs) in epgData) {
+                val realName = channelNames[id] ?: ""
+                val cleanId = id.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("in", "")
+                val cleanRealName = realName.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("hd", "")
 
-            if (cleanId == cleanSearchName || cleanId.contains(cleanSearchName) || cleanSearchName.contains(cleanId) ||
-                cleanRealName == cleanSearchName || cleanRealName.contains(cleanSearchName) || cleanSearchName.contains(cleanRealName)
-            ) {
-                val activeProgram = programs.firstOrNull { now in it.startMs..it.endMs }
-                if (activeProgram != null) {
-                    Log.d(TAG, "✅ Match [Name]: '$channelName' matched with '$realName' -> ${activeProgram.title}")
-                    return activeProgram
+                if (cleanId == cleanSearchName || cleanId.contains(cleanSearchName) || cleanSearchName.contains(cleanId) ||
+                    cleanRealName == cleanSearchName || cleanRealName.contains(cleanSearchName) || cleanSearchName.contains(cleanRealName)
+                ) {
+                    matchedPrograms = programs
+                    break
                 }
             }
         }
-        
-        Log.d(TAG, "❌ Failed: No program active for '$channelName' (Time: $now)")
+
+        // 3. Agar Channel mil gaya, toh usme se best show nikalenge!
+        if (matchedPrograms != null && matchedPrograms.isNotEmpty()) {
+            
+            // A. Pehle exact time match karo (Real Live TV)
+            var activeProgram = matchedPrograms.firstOrNull { now in it.startMs..it.endMs }
+            
+            // B. Agar Time thoda aage-peeche hai (EPG outdated hai), toh Next aane wala show utha lo
+            if (activeProgram == null) {
+                activeProgram = matchedPrograms.firstOrNull { it.endMs > now }
+            }
+            
+            // C. Agar EPG bohot hi purana hai, toh list ka aakhiri show utha kar dikha do
+            if (activeProgram == null) {
+                activeProgram = matchedPrograms.lastOrNull()
+            }
+            
+            Log.d(TAG, "✅ Success! Showing EPG for '$channelName' -> ${activeProgram?.title}")
+            return activeProgram
+        }
+
+        Log.d(TAG, "❌ Completely Failed to match name: '$channelName'")
         return null
     }
 }
