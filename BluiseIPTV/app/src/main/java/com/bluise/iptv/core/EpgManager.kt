@@ -10,7 +10,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.concurrent.thread
 
-// EPG ka ek program (Show) save karne ka format
 data class EpgProgram(
     val title: String,
     val startMs: Long,
@@ -20,40 +19,28 @@ data class EpgProgram(
 object EpgManager {
     private const val TAG = "EpgManager"
     
-    // Yahan hum tvg-id ke hisaab se saare programs save karenge
     val epgData = HashMap<String, ArrayList<EpgProgram>>()
     var isEpgLoaded = false
-
-    // Jab EPG download ho jayega, toh UI ko refresh karne ke liye listener
     var onEpgLoaded: (() -> Unit)? = null
 
-    // Background thread mein EPG download karega taaki TV hang na ho
     fun fetchEpgInBackground(epgUrl: String = "https://iptv-org.github.io/epg/guides/in/tvguide.in.epg.xml") {
-        if (isEpgLoaded) return
+        if (isEpgLoaded) return // Sirf ek baar load hoga
 
         thread {
             try {
-                Log.d(TAG, "Starting EPG Download: $epgUrl")
                 val connection = URL(epgUrl).openConnection() as HttpURLConnection
                 connection.connectTimeout = 10000
                 connection.readTimeout = 30000
-                
                 val inputStream = connection.inputStream
                 parseXmltv(inputStream)
-                
                 isEpgLoaded = true
-                Log.d(TAG, "EPG Loading Complete! Channels found: ${epgData.size}")
-                
-                // Download hone ke baad MainActivity ko update bhejega
                 onEpgLoaded?.invoke()
-                
             } catch (e: Exception) {
                 Log.e(TAG, "EPG Fetch Error: ${e.message}")
             }
         }
     }
 
-    // Fast XML Parser jo RAM bacha kar EPG read karega
     private fun parseXmltv(inputStream: InputStream) {
         try {
             val factory = XmlPullParserFactory.newInstance()
@@ -66,14 +53,11 @@ object EpgManager {
             var currentTitle = ""
             var startMs = 0L
             var endMs = 0L
-            
-            // XMLTV mein time is format mein hota hai: 20261021203000 +0530
             val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.ENGLISH)
             var insideProgramme = false
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 val tagName = parser.name
-
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
                         if (tagName.equals("programme", ignoreCase = true)) {
@@ -81,7 +65,6 @@ object EpgManager {
                             currentChannelId = parser.getAttributeValue(null, "channel") ?: ""
                             val startStr = parser.getAttributeValue(null, "start")
                             val stopStr = parser.getAttributeValue(null, "stop")
-                            
                             try {
                                 startMs = dateFormat.parse(startStr)?.time ?: 0L
                                 endMs = dateFormat.parse(stopStr)?.time ?: 0L
@@ -106,21 +89,30 @@ object EpgManager {
                 }
                 eventType = parser.next()
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "XML Parse Error: ${e.message}")
-        }
+        } catch (e: Exception) { }
     }
 
-    // Jo time abhi chal raha hai, uska program return karega
-    fun getCurrentProgram(tvgId: String?): EpgProgram? {
-        if (tvgId.isNullOrEmpty() || !epgData.containsKey(tvgId)) return null
-        
+    // 🔥 OTT Navigator style Smart Matching!
+    fun getCurrentProgram(tvgId: String?, channelName: String): EpgProgram? {
         val now = System.currentTimeMillis()
-        val programs = epgData[tvgId] ?: return null
+
+        // 1. Agar tvg-id hai toh direct match karo
+        if (!tvgId.isNullOrEmpty() && epgData.containsKey(tvgId)) {
+            return epgData[tvgId]?.firstOrNull { now in it.startMs..it.endMs }
+        }
+
+        // 2. Agar tvg-id nahi hai, toh channel ke naam se match karo!
+        val cleanName = channelName.replace(" ", "").replace("HD", "").lowercase(Locale.getDefault())
         
-        for (program in programs) {
-            if (now in program.startMs..program.endMs) {
-                return program
+        for ((key, programs) in epgData) {
+            // EPG ki IDs ko clean karke compare karo (e.g. SonyMax.in -> sonymax)
+            val cleanKey = key.replace(" ", "").replace(".in", "").lowercase(Locale.getDefault())
+            
+            if (cleanKey == cleanName || cleanKey.contains(cleanName) || cleanName.contains(cleanKey)) {
+                val activeProgram = programs.firstOrNull { now in it.startMs..it.endMs }
+                if (activeProgram != null) {
+                    return activeProgram
+                }
             }
         }
         return null
