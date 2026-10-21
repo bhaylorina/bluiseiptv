@@ -237,6 +237,13 @@ class MainActivity : AppCompatActivity() {
             loadPlaylists()
             forceReloadAllPlaylists()
             setupGestures()
+            // 🔥 NAYA ADD KIYA: Background mein EPG download start karega aur UI refresh karega
+            EpgManager.onEpgLoaded = {
+                runOnUiThread {
+                    channelAdapter?.notifyDataSetChanged()
+                }
+            }
+            EpgManager.fetchEpgInBackground()
         } catch (e: Throwable) {}
     }
 
@@ -1972,13 +1979,39 @@ val request = requestBuilder.build()
             tvName?.text = channel.name
             tvName?.setTextColor(Color.WHITE)
 
-            // 🔥 STEP 2 LOGIC: Abhi default text set kiya hai. 
-            // Step 3 me XMLTV parser automatically ise hide karke real EPG data dalega!
+                        // 🔥 STEP 3 LOGIC: Asli EPG Data yahan match hoga!
             if (tvProgramTitle != null) {
-                tvProgramTitle.text = "No EPG teleguide"
-                tvProgramTime?.text = ""
-                pbEpgProgress?.progress = 0
-                pbEpgProgress?.visibility = View.INVISIBLE // Jab actual progress aayega tab isko VISIBLE karenge
+                // Channel ki tvgId se aaj ka program nikalenge
+                val currentProgram = EpgManager.getCurrentProgram(channel.tvgId)
+                
+                if (currentProgram != null) {
+                    tvProgramTitle.text = currentProgram.title
+                    
+                    // Time ko AM/PM format mein convert karna
+                    val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                    val startStr = sdf.format(java.util.Date(currentProgram.startMs))
+                    val endStr = sdf.format(java.util.Date(currentProgram.endMs))
+                    tvProgramTime?.text = "$startStr - $endStr"
+                    
+                    // Progress bar calculate karna
+                    val now = System.currentTimeMillis()
+                    val totalDuration = currentProgram.endMs - currentProgram.startMs
+                    val elapsed = now - currentProgram.startMs
+                    
+                    if (totalDuration > 0 && elapsed > 0) {
+                        val progressPercentage = ((elapsed.toFloat() / totalDuration.toFloat()) * 100).toInt()
+                        pbEpgProgress?.progress = progressPercentage
+                        pbEpgProgress?.visibility = View.VISIBLE
+                    } else {
+                        pbEpgProgress?.visibility = View.INVISIBLE
+                    }
+                } else {
+                    // Agar channel ka EPG nahi mila, toh wapas default text
+                    tvProgramTitle.text = "No EPG teleguide"
+                    tvProgramTime?.text = ""
+                    pbEpgProgress?.progress = 0
+                    pbEpgProgress?.visibility = View.INVISIBLE
+                }
             }
 
             if (!channel.logoUrl.isNullOrEmpty()) {
@@ -2027,4 +2060,4 @@ val request = requestBuilder.build()
 
             return view
         }
-        }}
+        }
