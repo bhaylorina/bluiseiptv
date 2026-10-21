@@ -1981,7 +1981,7 @@ val request = requestBuilder.build()
 
             // 🔥 STEP 3 LOGIC: Mobile Friendly Code (No Syntax Error)
             if (tvProgramTitle != null) {
-                val prog = EpgManager.getCurrentProgram(channel.tvgId)
+                val prog = EpgManager.getCurrentProgram(channel.tvgId, channel.name)
                 
                 if (prog != null) {
                     tvProgramTitle.text = prog.title
