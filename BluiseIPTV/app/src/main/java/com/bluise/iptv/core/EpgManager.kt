@@ -29,7 +29,7 @@ object EpgManager {
     private const val CACHE_EXPIRY_MS = 12 * 60 * 60 * 1000L 
     var onEpgLoaded: (() -> Unit)? = null
 
-    fun fetchEpgInBackground(epgUrl: String = "https://avkb.short.gy/jioepg.xml.gz") {
+    fun fetchEpgInBackground(epgUrl: String = "https://github.com/bhaylorina/bluiseiptv/raw/refs/heads/main/epg.xml.gz") {
         val now = System.currentTimeMillis()
         if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) return 
 
