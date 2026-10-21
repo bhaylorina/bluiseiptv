@@ -13,7 +13,6 @@ class IptvParser {
     companion object {
         private const val TAG = "IptvParser"
 
-        // Precompiled regex — never inside loop
         private val ATTR_PATTERN = Pattern.compile("""([a-zA-Z0-9_.\-]+)="([^"]*)"""")
         private val KEYID_PATTERN = Pattern.compile("keyid=([a-fA-F0-9\\-]+)", Pattern.CASE_INSENSITIVE)
         private val KEY_PATTERN = Pattern.compile("(?:^|[&\\s])key=([a-fA-F0-9]+)", Pattern.CASE_INSENSITIVE)
@@ -39,6 +38,7 @@ class IptvParser {
     }
 
     private var currentTitle: String?      = null
+    private var currentTvgId: String?      = null // 🔥 NAYA ADD KIYA: EPG id ke liye
     private var currentLogo: String?       = null
     private var currentGroup: String?      = null
     private var currentLicenseKey: String? = null
@@ -52,8 +52,6 @@ class IptvParser {
     private var insideExtInf               = false
 
     fun parse(input: InputStream): ArrayList<Channel> {
-        // Memory Optimization: Use PushbackInputStream to read just the first character 
-        // to detect JSON vs M3U without loading the entire stream into RAM.
         val pbis = PushbackInputStream(input, 1)
         var c = pbis.read()
         
@@ -118,16 +116,16 @@ class IptvParser {
             if (attrVal.isEmpty()) continue
 
             when (attrKey) {
+                "tvg-id"                    -> currentTvgId = attrVal // 🔥 NAYA ADD KIYA
                 "tvg-logo", "logo"          -> currentLogo = attrVal
                 "group-title"               -> currentGroup = attrVal
-                "tvg-name"                  -> currentTitle = attrVal // tvg-name is strictly prioritized over comma title
+                "tvg-name"                  -> currentTitle = attrVal 
                 "keyid", "kid", "drm-keyid" -> currentKeyId = attrVal.replace("-", "")
                 "key", "license_key", "licence_key", "drm-key" -> currentKey = attrVal
                 "user-agent"                -> if (currentUa == null) currentUa = attrVal
             }
         }
         
-        // Use comma-separated title only if tvg-name was missing
         if (currentTitle.isNullOrEmpty()) {
             currentTitle = fallbackTitle
         }
@@ -157,7 +155,7 @@ class IptvParser {
                     "referer", "referrer" -> if (currentReferer == null) currentReferer = v
                     "cookie"              -> if (currentCookie == null) currentCookie = v
                     "origin"              -> currentHeaders.putIfAbsent("Origin", v)
-                    else                  -> currentHeaders[k] = v // Catches Hotstar specific headers (x-hs-*)
+                    else                  -> currentHeaders[k] = v 
                 }
             }
         } catch (e: Exception) { }
@@ -232,6 +230,7 @@ class IptvParser {
             Channel(
                 name          = finalTitle,
                 url           = rawUrl,
+                tvgId         = currentTvgId, // 🔥 NAYA ADD KIYA: Channel Model ko bhej diya
                 logoUrl       = currentLogo,
                 group         = finalGroup,
                 userAgent     = currentUa,
@@ -347,6 +346,11 @@ class IptvParser {
         val name = obj.optString("name", "").trim().ifBlank {
             streamUrl.substringAfterLast("/").substringBefore("?").substringBefore(".").ifEmpty { "Unknown" }
         }
+        
+        // 🔥 NAYA ADD KIYA: JSON support
+        val tvgId = obj.optString("tvg_id", "").trim().ifBlank {
+            obj.optString("tvg-id", "").trim().ifBlank { null }
+        }
 
         val group = obj.optString("group", "").trim().ifBlank {
             obj.optString("category", "").trim().ifBlank { "Others" }
@@ -423,6 +427,7 @@ class IptvParser {
             return Channel(
                 name          = name,
                 url           = streamUrl,
+                tvgId         = tvgId, // 🔥 NAYA ADD KIYA
                 logoUrl       = logo,
                 group         = group,
                 userAgent     = finalUa,
@@ -442,6 +447,7 @@ class IptvParser {
         return Channel(
             name          = name,
             url           = streamUrl,
+            tvgId         = tvgId, // 🔥 NAYA ADD KIYA
             logoUrl       = logo,
             group         = group,
             userAgent     = userAgent,
@@ -486,7 +492,7 @@ class IptvParser {
     }
 
     private fun resetState() {
-        currentTitle = null; currentLogo = null; currentGroup = null
+        currentTitle = null; currentTvgId = null; currentLogo = null; currentGroup = null // 🔥 NAYA ADD KIYA: currentTvgId = null
         currentLicenseKey = null; currentKeyId = null; currentKey = null
         currentUa = null; currentCookie = null; currentReferer = null; currentDrmScheme = null
         currentHeaders.clear(); insideExtInf = false
