@@ -1948,7 +1948,7 @@ val request = requestBuilder.build()
         }
     }
 
-    inner class ChannelAdapter(
+        inner class ChannelAdapter(
         context: Context,
         private val items: ArrayList<Channel>
     ) : ArrayAdapter<Channel>(context, 0, items) {
@@ -1961,10 +1961,25 @@ val request = requestBuilder.build()
             val tvName = view.findViewById<TextView>(R.id.tvChannelName)
             val imgLogo = view.findViewById<ImageView>(R.id.imgLogo)
             val imgFav = view.findViewById<ImageView>(R.id.imgFav)
-            imgFav.visibility = View.GONE
+            
+            // 🔥 NAYA ADD KIYA: EPG ke naye XML design ko code se link kiya
+            val tvProgramTitle = view.findViewById<TextView>(R.id.tvProgramTitle)
+            val tvProgramTime = view.findViewById<TextView>(R.id.tvProgramTime)
+            val pbEpgProgress = view.findViewById<ProgressBar>(R.id.pbEpgProgress)
 
-            tvName.text = channel.name
-            tvName.setTextColor(Color.WHITE)
+            imgFav?.visibility = View.GONE
+
+            tvName?.text = channel.name
+            tvName?.setTextColor(Color.WHITE)
+
+            // 🔥 STEP 2 LOGIC: Abhi default text set kiya hai. 
+            // Step 3 me XMLTV parser automatically ise hide karke real EPG data dalega!
+            if (tvProgramTitle != null) {
+                tvProgramTitle.text = "No EPG teleguide"
+                tvProgramTime?.text = ""
+                pbEpgProgress?.progress = 0
+                pbEpgProgress?.visibility = View.INVISIBLE // Jab actual progress aayega tab isko VISIBLE karenge
+            }
 
             if (!channel.logoUrl.isNullOrEmpty()) {
                 Glide.with(context)
@@ -1978,7 +1993,7 @@ val request = requestBuilder.build()
                     )
                     .into(imgLogo)
             } else {
-                imgLogo.setImageResource(android.R.drawable.ic_menu_gallery)
+                imgLogo?.setImageResource(android.R.drawable.ic_menu_gallery)
             }
 
             if (TvManager.isTvMode) {
@@ -1988,10 +2003,10 @@ val request = requestBuilder.build()
                 if (view is ViewGroup) {
                     view.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                 }
-                tvName.isFocusable = false
-                tvName.isClickable = false
-                imgLogo.isFocusable = false
-                imgLogo.isClickable = false
+                tvName?.isFocusable = false
+                tvName?.isClickable = false
+                imgLogo?.isFocusable = false
+                imgLogo?.isClickable = false
 
                 view.setOnFocusChangeListener { _, hasFocus ->
                     if (hasFocus) view.setBackgroundColor(Color.parseColor("#888888"))
@@ -2012,5 +2027,4 @@ val request = requestBuilder.build()
 
             return view
         }
-    }
-}
+        }
