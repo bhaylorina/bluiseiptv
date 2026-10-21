@@ -1979,8 +1979,9 @@ val request = requestBuilder.build()
             tvName?.text = channel.name
             tvName?.setTextColor(Color.WHITE)
 
-            // 🔥 STEP 3 LOGIC: Mobile Friendly Code (No Syntax Error)
+                        // 🔥 STEP 3 LOGIC: Final EPG Matching (Ab 'channel.name' pass hoga!)
             if (tvProgramTitle != null) {
+                // 🔥 YAHAN MAIN channel.name BHOOL GAYA THA, AB ADD KAR DIYA HAI
                 val prog = EpgManager.getCurrentProgram(channel.tvgId, channel.name)
                 
                 if (prog != null) {
@@ -2009,7 +2010,6 @@ val request = requestBuilder.build()
                     pbEpgProgress?.visibility = View.INVISIBLE
                 }
             }
-
             if (!channel.logoUrl.isNullOrEmpty()) {
                 Glide.with(context)
                     .load(channel.logoUrl)
