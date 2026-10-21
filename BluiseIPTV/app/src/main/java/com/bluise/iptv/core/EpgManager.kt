@@ -29,7 +29,7 @@ object EpgManager {
     private const val CACHE_EXPIRY_MS = 12 * 60 * 60 * 1000L 
     var onEpgLoaded: (() -> Unit)? = null
 
-        // NAYA URL: 'www.dropbox.com' ki jagah 'dl.dropboxusercontent.com' lagaya hai aur '&dl=1' hata diya hai
+    // NAYA URL: 'www.dropbox.com' ki jagah 'dl.dropboxusercontent.com' lagaya hai aur '&dl=1' hata diya hai
     fun fetchEpgInBackground(epgUrl: String = "https://dl.dropboxusercontent.com/scl/fi/s986xqczdsn77t1umeqdu/epg.xml.gz?rlkey=z7tlltik2tu75jjb35lh1vci5&st=fm6xgo12") {
         val now = System.currentTimeMillis()
         if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) return 
@@ -66,6 +66,29 @@ object EpgManager {
                 
             } catch (e: Exception) {
                 Log.e(TAG, "EPG Error: ${e.message}")
+            }
+        }
+    }
+
+    // MISSING FUNCTION 1: NAYA Code clean karne ka function
+    private fun cleanName(name: String): String {
+        return name.replace(Regex("[^a-zA-Z0-9]"), "").lowercase(Locale.getDefault()).replace("hd", "").replace("in", "")
+    }
+
+    // MISSING FUNCTION 2: 100% Accurate Time Zone Parser
+    private fun parseTime(timeStr: String?): Long {
+        if (timeStr.isNullOrEmpty()) return 0L
+        return try {
+            val format = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.ENGLISH)
+            format.parse(timeStr.trim())?.time ?: 0L
+        } catch (e: Exception) {
+            try {
+                val cleanStr = if (timeStr.length >= 14) timeStr.substring(0, 14) else timeStr
+                val fallbackFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.ENGLISH)
+                fallbackFormat.timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
+                fallbackFormat.parse(cleanStr)?.time ?: 0L
+            } catch (ex: Exception) {
+                0L
             }
         }
     }
