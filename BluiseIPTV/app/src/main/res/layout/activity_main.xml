@@ -157,7 +157,7 @@
                     app:resize_mode="fit"
                     android:background="#000000" />
 
-                <RelativeLayout
+                                <RelativeLayout
                     android:id="@+id/controlsContainer"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
@@ -177,7 +177,119 @@
                         android:layout_marginLeft="10dp"
                         android:layout_marginTop="10dp"/>
 
+                    <!-- 🔥 NAYI EPG STRIP (Controls ke theek upar) -->
                     <LinearLayout
+                        android:id="@+id/epg_strip_layout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_above="@+id/bottomControlsLayout"
+                        android:layout_marginLeft="10dp"
+                        android:layout_marginRight="10dp"
+                        android:background="#CC000000"
+                        android:paddingTop="5dp"
+                        android:paddingBottom="5dp"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:visibility="gone">
+
+                        <!-- Left Side: Channel Logo -->
+                        <ImageView
+                            android:id="@+id/epg_channel_logo"
+                            android:layout_width="45dp"
+                            android:layout_height="45dp"
+                            android:layout_marginEnd="10dp"
+                            android:scaleType="fitCenter" />
+
+                        <!-- Right Side: 3 Lines of Text -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+
+                            <!-- Line 1: Channel Name -->
+                            <TextView
+                                android:id="@+id/epg_channel_name"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Channel Name"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <!-- Line 2: Current Show with Yellow Progress Bar -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:gravity="center_vertical"
+                                android:layout_marginTop="1dp">
+
+                                <TextView
+                                    android:id="@+id/epg_current_time"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="00:00 - 00:00"
+                                    android:textColor="#E0E0E0"
+                                    android:textSize="11sp" />
+
+                                <ProgressBar
+                                    android:id="@+id/epg_current_progress"
+                                    style="?android:attr/progressBarStyleHorizontal"
+                                    android:layout_width="0dp"
+                                    android:layout_height="6dp"
+                                    android:layout_weight="1"
+                                    android:layout_marginStart="8dp"
+                                    android:layout_marginEnd="8dp"
+                                    android:progressTint="#FFC107"
+                                    android:progressBackgroundTint="#55FFFFFF" />
+
+                                <TextView
+                                    android:id="@+id/epg_current_title"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="Current Show"
+                                    android:textColor="#FFFFFF"
+                                    android:textSize="12sp"
+                                    android:textStyle="bold"
+                                    android:ellipsize="end"
+                                    android:maxLines="1"/>
+                            </LinearLayout>
+
+                            <!-- Line 3: Next Show -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:layout_marginTop="1dp">
+
+                                <TextView
+                                    android:id="@+id/epg_next_time"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="00:00 - 00:00"
+                                    android:textColor="#A3A3A3"
+                                    android:textSize="10sp" />
+
+                                <TextView
+                                    android:id="@+id/epg_next_title"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="8dp"
+                                    android:text="Next Show"
+                                    android:textColor="#CCCCCC"
+                                    android:textSize="11sp"
+                                    android:ellipsize="end"
+                                    android:maxLines="1"/>
+                            </LinearLayout>
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Bottom Controls Layout -->
+                    <LinearLayout
+                        android:id="@+id/bottomControlsLayout"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_alignParentBottom="true"
