@@ -156,7 +156,7 @@ object EpgManager {
         }
     }
 
-    // 🔥 NO LOOP IN UI - Direct Dictionary Match - 0% Lag!
+        // 🔥 NO LOOP IN UI - Direct Dictionary Match - 0% Lag!
     fun getCurrentProgram(tvgId: String?, channelName: String): EpgProgram? {
         val now = System.currentTimeMillis()
         var targetId: String? = null
@@ -189,5 +189,47 @@ object EpgManager {
         }
 
         return null
+    }
+
+    // 🔥 NAYA FUNCTION: Current aur Upcoming (Next) show dono ek sath nikalne ke liye
+    fun getCurrentAndNextProgram(tvgId: String?, channelName: String): Pair<EpgProgram?, EpgProgram?> {
+        val now = System.currentTimeMillis()
+        var targetId: String? = null
+
+        if (!tvgId.isNullOrEmpty() && epgData.containsKey(tvgId)) {
+            targetId = tvgId
+        }
+
+        if (targetId == null) {
+            val cleanSearchName = cleanName(channelName)
+            targetId = searchIndex[cleanSearchName]
+            if (targetId == null) {
+                for (key in searchIndex.keys) {
+                    if (key.contains(cleanSearchName) || cleanSearchName.contains(key)) {
+                        targetId = searchIndex[key]
+                        break
+                    }
+                }
+            }
+        }
+
+        if (targetId != null && epgData.containsKey(targetId)) {
+            val programs = epgData[targetId]!!
+            
+            // Pehle current show nikalo
+            val current = programs.firstOrNull { now in it.startMs..it.endMs }
+            
+            // Phir current show ke aage wala next show nikalo
+            val next = if (current != null) {
+                val currentIndex = programs.indexOf(current)
+                if (currentIndex != -1 && currentIndex + 1 < programs.size) {
+                    programs[currentIndex + 1]
+                } else null
+            } else {
+                programs.firstOrNull { it.startMs > now }
+            }
+            return Pair(current, next)
+        }
+        return Pair(null, null)
     }
 }
