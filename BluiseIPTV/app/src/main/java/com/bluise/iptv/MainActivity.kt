@@ -1373,7 +1373,7 @@ class MainActivity : AppCompatActivity() {
         debugText?.visibility = View.VISIBLE
 
         handler.removeCallbacks(hideControlsRunnable)
-        handler.postDelayed(hideControlsRunnable, 3000)
+        handler.postDelayed(hideControlsRunnable, 7000)
 
         updateSeekRunnable?.let {
             handler.removeCallbacks(it)
