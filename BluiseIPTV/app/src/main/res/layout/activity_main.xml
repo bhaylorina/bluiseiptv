@@ -220,7 +220,7 @@
                                 android:textSize="20sp"
                                 android:textStyle="bold" />
 
-                            <!-- Line 2: Current Show with Yellow Progress Bar -->
+                                                        <!-- Line 2: Current Show with Yellow Progress Bar -->
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
@@ -228,29 +228,33 @@
                                 android:gravity="center_vertical"
                                 android:layout_marginTop="1dp">
 
+                                <!-- 1. Pehle Show Name -->
                                 <TextView
                                     android:id="@+id/epg_current_title"
-                                    android:layout_width="0dp"
+                                    android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:layout_weight="1"
                                     android:text="Current Show"
                                     android:textColor="#FFFFFF"
                                     android:textSize="16sp"
                                     android:textStyle="bold"
+                                    android:layout_marginEnd="15dp" 
                                     android:ellipsize="end"
                                     android:maxLines="1"/>
+                                    <!-- 🔥 layout_marginEnd="15dp" se Show Name aur Progress Bar ke beech ka gap set hoga. Isey kam/zyada kar sakte hain -->
 
+                                <!-- 2. Beech mein Progress Bar -->
                                 <ProgressBar
                                     android:id="@+id/epg_current_progress"
                                     style="?android:attr/progressBarStyleHorizontal"
                                     android:layout_width="0dp"
                                     android:layout_height="6dp"
                                     android:layout_weight="1"
-                                    android:layout_marginStart="8dp"
-                                    android:layout_marginEnd="8dp"
+                                    android:layout_marginEnd="15dp"
                                     android:progressTint="#FFC107"
                                     android:progressBackgroundTint="#55FFFFFF" />
+                                    <!-- 🔥 layout_weight="1" lagane se Progress bar ab screen ki baaki saari jagah automatically cover kar lega -->
 
+                                <!-- 3. Last mein Time -->
                                 <TextView
                                     android:id="@+id/epg_current_time"
                                     android:layout_width="wrap_content"
