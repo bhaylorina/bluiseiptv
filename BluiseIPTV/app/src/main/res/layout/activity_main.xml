@@ -185,8 +185,8 @@
                         android:layout_above="@+id/bottomControlsLayout"
                         android:layout_marginLeft="10dp"
                         android:layout_marginRight="10dp"
-                        android:layout_marginBottom="-8dp" 
-                        android:background="#33000000" 
+                        android:translationY="18dp" 
+                        android:background="#4D000000" 
                         android:paddingTop="5dp"
 
                         android:paddingBottom="5dp"
