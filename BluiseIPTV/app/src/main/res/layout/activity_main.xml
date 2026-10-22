@@ -186,7 +186,7 @@
                         android:layout_marginLeft="10dp"
                         android:layout_marginRight="10dp"
                         android:translationY="18dp" 
-                        android:background="​#80000000" 
+                        android:background="#80000000" 
                         android:paddingTop="5dp"
 
                         android:paddingBottom="5dp"
