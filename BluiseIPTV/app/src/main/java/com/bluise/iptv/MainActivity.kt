@@ -943,8 +943,18 @@ class MainActivity : AppCompatActivity() {
         btnRew?.setOnClickListener { playPreviousChannel(); showControls() }
         btnFwd?.setOnClickListener { playNextChannel(); showControls() }
 
-                btnScale?.setOnClickListener {
-            // ... (jo bhi code hai) ...
+                        // Yahan se aapka original btnScale ka code wapas daal diya hai
+        btnScale?.setOnClickListener {
+            showControls()
+            if (playerView != null) {
+                resizeMode = when (resizeMode) {
+                    AspectRatioFrameLayout.RESIZE_MODE_FIT ->
+                        AspectRatioFrameLayout.RESIZE_MODE_FILL
+                    AspectRatioFrameLayout.RESIZE_MODE_FILL ->
+                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                }
+                playerView?.resizeMode = resizeMode
             }
         }
 
