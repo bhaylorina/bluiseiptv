@@ -217,7 +217,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="Channel Name"
                                 android:textColor="#FFFFFF"
-                                android:textSize="16sp"
+                                android:textSize="20sp"
                                 android:textStyle="bold" />
 
                             <!-- Line 2: Current Show with Yellow Progress Bar -->
@@ -229,12 +229,16 @@
                                 android:layout_marginTop="1dp">
 
                                 <TextView
-                                    android:id="@+id/epg_current_time"
-                                    android:layout_width="wrap_content"
+                                    android:id="@+id/epg_current_title"
+                                    android:layout_width="0dp"
                                     android:layout_height="wrap_content"
-                                    android:text="00:00 - 00:00"
-                                    android:textColor="#E0E0E0"
-                                    android:textSize="14sp" />
+                                    android:layout_weight="1"
+                                    android:text="Current Show"
+                                    android:textColor="#FFFFFF"
+                                    android:textSize="16sp"
+                                    android:textStyle="bold"
+                                    android:ellipsize="end"
+                                    android:maxLines="1"/>
 
                                 <ProgressBar
                                     android:id="@+id/epg_current_progress"
@@ -248,16 +252,12 @@
                                     android:progressBackgroundTint="#55FFFFFF" />
 
                                 <TextView
-                                    android:id="@+id/epg_current_title"
-                                    android:layout_width="0dp"
+                                    android:id="@+id/epg_current_time"
+                                    android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:text="Current Show"
-                                    android:textColor="#FFFFFF"
-                                    android:textSize="15sp"
-                                    android:textStyle="bold"
-                                    android:ellipsize="end"
-                                    android:maxLines="1"/>
+                                    android:text="00:00 - 00:00"
+                                    android:textColor="#E0E0E0"
+                                    android:textSize="16sp" />
                             </LinearLayout>
 
                             <!-- Line 3: Next Show -->
@@ -265,6 +265,7 @@
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:orientation="horizontal"
+                                android:visibility="gone"
                                 android:layout_marginTop="1dp">
 
                                 <TextView
