@@ -177,7 +177,7 @@
                         android:layout_marginLeft="10dp"
                         android:layout_marginTop="10dp"/>
 
-                    <!-- 🔥 NAYI EPG STRIP (Controls ke theek upar) -->
+                                        <!-- 🔥 NAYI EPG STRIP (Controls ke theek upar) -->
                     <LinearLayout
                         android:id="@+id/epg_strip_layout"
                         android:layout_width="match_parent"
@@ -185,8 +185,10 @@
                         android:layout_above="@+id/bottomControlsLayout"
                         android:layout_marginLeft="10dp"
                         android:layout_marginRight="10dp"
-                        android:background="#CC000000"
+                        android:layout_marginBottom="-8dp" 
+                        android:background="#33000000" 
                         android:paddingTop="5dp"
+
                         android:paddingBottom="5dp"
                         android:paddingStart="10dp"
                         android:paddingEnd="10dp"
