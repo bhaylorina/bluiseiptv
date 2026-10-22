@@ -72,11 +72,20 @@ class MainActivity : AppCompatActivity() {
     var btnSettings: Button? = null
 
     // Group Filter Buttons
-    var btnShowAll: Button? = null
+        var btnShowAll: Button? = null
     var btnShowGroups: Button? = null
 
-    var searchBar: EditText? = null
+    // 🔥 NAYE EPG STRIP VARIABLES 🔥
+    var epgStripLayout: LinearLayout? = null
+    var epgChannelLogo: ImageView? = null
+    var epgChannelName: TextView? = null
+    var epgCurrentTime: TextView? = null
+    var epgCurrentProgress: ProgressBar? = null
+    var epgCurrentTitle: TextView? = null
+    var epgNextTime: TextView? = null
+    var epgNextTitle: TextView? = null
 
+    var searchBar: EditText? = null
     // Channel Name Overlay
     var channelNameOverlay: TextView? = null
     var debugText: TextView? = null
@@ -612,8 +621,18 @@ class MainActivity : AppCompatActivity() {
         playerContainer = findViewById(R.id.playerContainer)
         controlsContainer = findViewById(R.id.controlsContainer)
 
-        btnShowAll = findViewById(R.id.btnShowAll)
+                btnShowAll = findViewById(R.id.btnShowAll)
         btnShowGroups = findViewById(R.id.btnShowGroups)
+
+        // 🔥 EPG STRIP KO BIND KARNA 🔥
+        epgStripLayout = findViewById(R.id.epg_strip_layout)
+        epgChannelLogo = findViewById(R.id.epg_channel_logo)
+        epgChannelName = findViewById(R.id.epg_channel_name)
+        epgCurrentTime = findViewById(R.id.epg_current_time)
+        epgCurrentProgress = findViewById(R.id.epg_current_progress)
+        epgCurrentTitle = findViewById(R.id.epg_current_title)
+        epgNextTime = findViewById(R.id.epg_next_time)
+        epgNextTitle = findViewById(R.id.epg_next_title)
 
         if (TvManager.isTvMode) {
             playerContainer?.visibility = View.GONE
@@ -734,11 +753,15 @@ class MainActivity : AppCompatActivity() {
                         tvTotalDuration?.text = formatTime(duration)
                         tvCurrentTime?.text = formatTime(position)
                     } else {
-                        customSeekbar?.progress = 0
+                                                customSeekbar?.progress = 0
                         customSeekbar?.isEnabled = false
                         tvTotalDuration?.text = "00:00"
                         tvCurrentTime?.text = "00:00"
                     }
+                    
+                    // 🔥 EPG STRIP KO HAR SECOND UPDATE KARNA 🔥
+                    updateEpgStrip(currentPlayingChannel)
+                    
                     handler.removeCallbacks(this)
                     handler.postDelayed(this, 1000)
                 }
@@ -1952,14 +1975,74 @@ val request = requestBuilder.build()
         val secs = totalSecs % 60
         val mins = (totalSecs / 60) % 60
         val hrs = totalSecs / 3600
-        return if (hrs > 0) {
+                return if (hrs > 0) {
             String.format("%02d:%02d:%02d", hrs, mins, secs)
         } else {
             String.format("%02d:%02d", mins, secs)
         }
     }
 
-            inner class ChannelAdapter(
+    // 🔥 NAYA EPG STRIP UPDATE FUNCTION 🔥
+    private fun updateEpgStrip(channel: Channel?) {
+        if (channel == null) {
+            epgStripLayout?.visibility = View.GONE
+            return
+        }
+
+        epgChannelName?.text = channel.name
+        
+        if (!channel.logoUrl.isNullOrEmpty()) {
+            epgChannelLogo?.let {
+                Glide.with(this)
+                    .load(channel.logoUrl)
+                    .apply(RequestOptions()
+                        .placeholder(android.R.drawable.ic_menu_gallery)
+                        .error(android.R.drawable.ic_menu_gallery)
+                        .override(100, 100))
+                    .into(it)
+            }
+        } else {
+            epgChannelLogo?.setImageResource(android.R.drawable.ic_menu_gallery)
+        }
+
+        val (currentShow, nextShow) = EpgManager.getCurrentAndNextProgram(channel.tvgId, channel.name)
+
+        if (currentShow != null) {
+            epgStripLayout?.visibility = View.VISIBLE
+            
+            val timeFormat = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+            val startStr = timeFormat.format(java.util.Date(currentShow.startMs))
+            val endStr = timeFormat.format(java.util.Date(currentShow.endMs))
+            
+            epgCurrentTime?.text = "$startStr - $endStr"
+            epgCurrentTitle?.text = currentShow.title
+
+            val now = System.currentTimeMillis()
+            val totalDuration = currentShow.endMs - currentShow.startMs
+            val elapsed = now - currentShow.startMs
+            
+            if (totalDuration > 0 && elapsed > 0) {
+                val progressPercent = ((elapsed.toFloat() / totalDuration.toFloat()) * 100).toInt()
+                epgCurrentProgress?.progress = progressPercent
+            } else {
+                epgCurrentProgress?.progress = 0
+            }
+
+            if (nextShow != null) {
+                val nextStartStr = timeFormat.format(java.util.Date(nextShow.startMs))
+                val nextEndStr = timeFormat.format(java.util.Date(nextShow.endMs))
+                epgNextTime?.text = "$nextStartStr - $nextEndStr"
+                epgNextTitle?.text = nextShow.title
+            } else {
+                epgNextTime?.text = ""
+                epgNextTitle?.text = "No upcoming show"
+            }
+        } else {
+            epgStripLayout?.visibility = View.GONE
+        }
+    }
+
+    inner class ChannelAdapter(
         context: Context,
         private val items: ArrayList<Channel>
     ) : ArrayAdapter<Channel>(context, 0, items) {
