@@ -943,19 +943,35 @@ class MainActivity : AppCompatActivity() {
         btnRew?.setOnClickListener { playPreviousChannel(); showControls() }
         btnFwd?.setOnClickListener { playNextChannel(); showControls() }
 
-        btnScale?.setOnClickListener {
-            showControls()
-            if (playerView != null) {
-                resizeMode = when (resizeMode) {
-                    AspectRatioFrameLayout.RESIZE_MODE_FIT ->
-                        AspectRatioFrameLayout.RESIZE_MODE_FILL
-                    AspectRatioFrameLayout.RESIZE_MODE_FILL ->
-                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                }
-                playerView?.resizeMode = resizeMode
+                btnScale?.setOnClickListener {
+            // ... (jo bhi code hai) ...
             }
         }
+
+        // 🔥 FIX 2: BLUE BOX HATANA AUR ZOOM EFFECT LAGANA 🔥
+        val controlFocusListener = View.OnFocusChangeListener { v, hasFocus ->
+            if (hasFocus) {
+                // Button 30% bada hoga aur text thoda chamkega
+                v.scaleX = 1.3f
+                v.scaleY = 1.3f
+                (v as? Button)?.setTextColor(Color.parseColor("#FFC107")) // Yellow highlight
+                v.setBackgroundColor(Color.TRANSPARENT) // Blue box disabled!
+            } else {
+                // Focus hatne par wapas normal size
+                v.scaleX = 1.0f
+                v.scaleY = 1.0f
+                (v as? Button)?.setTextColor(Color.WHITE)
+                v.setBackgroundColor(Color.TRANSPARENT)
+            }
+        }
+        
+        // Ye naya focus listener apne bottom buttons par lagana hai
+        btnPlay?.onFocusChangeListener = controlFocusListener
+        btnRew?.onFocusChangeListener = controlFocusListener
+        btnFwd?.onFocusChangeListener = controlFocusListener
+        btnScale?.onFocusChangeListener = controlFocusListener
+        btnQuality?.onFocusChangeListener = controlFocusListener
+        btnFullscreen?.onFocusChangeListener = controlFocusListener
 
         channelListView?.setOnItemClickListener { _, _, position, _ ->
             if (isGroupView) {
@@ -1566,9 +1582,11 @@ class MainActivity : AppCompatActivity() {
                 builder.setForceHighestSupportedBitrate(false)
             }
 
-            player!!.trackSelectionParameters = builder.build()
+                        player!!.trackSelectionParameters = builder.build()
 
-            controlsContainer?.visibility = View.GONE
+            // 🔥 FIX 3: Channel change hote hi 3 second ke liye controls/EPG dikhana
+            showControls() 
+            
             showChannelNameOverlay(channel.name)
             playerContainer?.visibility = View.VISIBLE
             btnSettings?.visibility = View.GONE
