@@ -1982,9 +1982,10 @@ val request = requestBuilder.build()
         }
     }
 
-    // 🔥 NAYA EPG STRIP UPDATE FUNCTION 🔥
+        // 🔥 NAYA EPG STRIP UPDATE FUNCTION 🔥
     private fun updateEpgStrip(channel: Channel?) {
-        if (channel == null) {
+        // 🔥 FIX: Mini player me strip block karne ka logic
+        if (channel == null || (!isFullscreen && !TvManager.isTvMode)) {
             epgStripLayout?.visibility = View.GONE
             return
         }
