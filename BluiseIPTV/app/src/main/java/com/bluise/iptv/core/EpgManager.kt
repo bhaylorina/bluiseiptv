@@ -266,16 +266,24 @@ object EpgManager {
 
         var id = searchIndex[clean]
 
-        // Backup: partial match
+                // Backup: Smart partial match
         if (id == null) {
+            var possibleId: String? = null
             for ((key, value) in searchIndex) {
                 if (key.contains(clean) || clean.contains(key)) {
-                    id = value
-                    break
+                    possibleId = value
+                    
+                    // Agar hum SD channel dhundh rahe hain (jiske naam mein hd nahi hai), 
+                    // par match mein galti se HD aa gaya, toh loop mat roko, aage sahi SD ko dhundho!
+                    if (!clean.endsWith("hd") && key.endsWith("hd")) {
+                        continue 
+                    }
+                    // Exact sahi match mil gaya, ab ruko
+                    break 
                 }
             }
+            id = possibleId
         }
-
         // Loading ke dauran "no match" cache mat karo, baad mein mil sakta hai
         if (id != null || isEpgLoaded) resolveCache[clean] = id
         return id
