@@ -115,8 +115,8 @@ object EpgManager {
         }
     }
 
-    private fun cleanName(name: String): String {
-        return name.replace(nonAlnum, "").lowercase(Locale.getDefault()).replace("hd", "").replace("in", "")
+        private fun cleanName(name: String): String {
+        return name.replace(nonAlnum, "").lowercase(Locale.getDefault())
     }
 
     // ---- FAST TIME PARSER (SimpleDateFormat ke bina) ----
