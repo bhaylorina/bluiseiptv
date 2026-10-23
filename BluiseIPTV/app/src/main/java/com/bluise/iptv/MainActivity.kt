@@ -2091,7 +2091,7 @@ val request = requestBuilder.build()
 
             imgFav?.visibility = View.GONE
 
-            tvName?.text = "${channel.name} [ID: ${channel.tvgId}]"
+            tvName?.text = channel.name
             tvName?.setTextColor(Color.WHITE)
 
                         // 🔥 STEP 3 LOGIC: Final EPG Matching (Ab 'channel.name' pass hoga!)
