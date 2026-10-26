@@ -256,7 +256,7 @@ class MainActivity : AppCompatActivity() {
             }
             
             // 🔥 JioTV EPG Download start (Naya Fast Server)
-            EpgManager.fetchEpgInBackground()
+            EpgManager.fetchEpgInBackground(this)
         } catch (e: Throwable) {}
     }
 
