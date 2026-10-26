@@ -146,7 +146,7 @@ class PlayerEngine {
             // 🔥 MOD: Fix Buffer duration to stay below Live Edge target
             val loadControl = DefaultLoadControl.Builder()
                 .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-                .setBufferDurationsMs(15_000, 50_000, 1_000, 3_000)
+                .setBufferDurationsMs(25_000, 50_000, 0_500, 3_000)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
 
@@ -395,10 +395,10 @@ class PlayerEngine {
 
             // 🔥 MOD: Enabled Adaptive Live Speed so stream doesn't freeze
             val liveConfig = MediaItem.LiveConfiguration.Builder()
-                .setTargetOffsetMs(20_000)
-                .setMinPlaybackSpeed(0.97f)
-                .setMaxPlaybackSpeed(1.03f)
-                .build()
+    .setTargetOffsetMs(30_000)
+    .setMinPlaybackSpeed(1f)
+    .setMaxPlaybackSpeed(1f)
+    .build()
 
 
             val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl).setLiveConfiguration(liveConfig)
