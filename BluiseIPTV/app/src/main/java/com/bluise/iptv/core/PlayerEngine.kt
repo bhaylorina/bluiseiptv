@@ -127,7 +127,7 @@ class PlayerEngine {
             // 🔥 MOD: Tunneling Disabled to prevent DRM/Hardware conflicts
             val trackSelector = DefaultTrackSelector(context).apply {
                 parameters = buildUponParameters()
-                    .setTunnelingEnabled(false) 
+                    .setTunnelingEnabled(true) 
                     .setExceedAudioConstraintsIfNecessary(true)
                     .setExceedVideoConstraintsIfNecessary(true)
                     .setAllowVideoNonSeamlessAdaptiveness(true)
