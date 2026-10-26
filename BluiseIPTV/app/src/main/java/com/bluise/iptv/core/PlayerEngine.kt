@@ -146,7 +146,7 @@ class PlayerEngine {
             // 🔥 MOD: Fix Buffer duration to stay below Live Edge target
             val loadControl = DefaultLoadControl.Builder()
                 .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-                .setBufferDurationsMs(25_000, 50_000, 0_500, 3_000)
+                .setBufferDurationsMs(25_000, 50_000, 500, 3_000)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
 
