@@ -37,8 +37,9 @@ android {
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-        // 🔥 Ye naya debug block add karna hai
+        // ðŸ”¥ Ye naya debug block add karna hai
         debug {
+            debuggable false   // debuggable APK slow chalta hai (zyada CPU/heat). CI assembleDebug hi banata hai, isliye yahan off
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
