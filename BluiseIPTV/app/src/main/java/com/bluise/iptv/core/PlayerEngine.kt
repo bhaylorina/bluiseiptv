@@ -197,10 +197,10 @@ val loadControl = DefaultLoadControl.Builder()
                 } catch (e: Exception) { }
             }
 
-            if (!headers.containsKey("Referer") && actualUrl.contains(".php", ignoreCase = true)) {
-                headers["Referer"] = "https://www.google.com/"
-                headers["Origin"]  = "https://www.google.com"
-            }
+            //if (!headers.containsKey("Referer") && actualUrl.contains(".php", ignoreCase = true)) {
+                //headers["Referer"] = "https://www.google.com/"
+                //headers["Origin"]  = "https://www.google.com"
+            //}
 
             val userAgent = headers.getOrElse("User-Agent") { DEFAULT_UA }
             headers["User-Agent"] = userAgent
