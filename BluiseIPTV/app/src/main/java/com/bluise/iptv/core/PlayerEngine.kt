@@ -28,7 +28,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 
-
 class PlayerEngine {
 
     companion object {
@@ -48,7 +47,7 @@ class PlayerEngine {
 
         private val mainHandler = Handler(Looper.getMainLooper())
 
-                private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+        private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
         
         // 1. THE COOKIE FIX: Akamai ki zehreeli cookie ('hdntl=expired') ab kabhi save nahi hogi!
         private val cookieJar = object : CookieJar {
@@ -76,7 +75,6 @@ class PlayerEngine {
         // 2. THE HTTP/2 FIX + CLEAN BUILDER
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
-            // 🔥 YAHAN MAINE FORCE KAR DIYA HAI KI HTTP/2 USE HO! (Doubt cleared)
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
@@ -119,41 +117,37 @@ class PlayerEngine {
             Thread(r, "resolver-worker").apply { isDaemon = true }
         }
 
-                                fun createPlayer(context: Context): ExoPlayer {
+        fun createPlayer(context: Context): ExoPlayer {
             updateProxyState(context)
 
             val renderersFactory = DefaultRenderersFactory(context)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                 .setEnableDecoderFallback(true)
 
-                        val trackSelector = DefaultTrackSelector(context).apply {
-    parameters = buildUponParameters()
-        .setTunnelingEnabled(false) // 🔥 FIX: Disable for ClearKey MPD stability
-        .setExceedAudioConstraintsIfNecessary(true)
-        .setExceedVideoConstraintsIfNecessary(true)
-        .setAllowVideoNonSeamlessAdaptiveness(true)
-        .setAllowAudioMixedMimeTypeAdaptiveness(false)
-        .setAllowAudioMixedChannelCountAdaptiveness(false)
-        .setViewportSizeToPhysicalDisplaySize(context, true)
-        .setAudioOffloadPreferences(
-            AudioOffloadPreferences.Builder()
-                .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
-                .build()
-        )
-        .build()
-}
+            // 🔥 MOD: Tunneling Disabled to prevent DRM/Hardware conflicts
+            val trackSelector = DefaultTrackSelector(context).apply {
+                parameters = buildUponParameters()
+                    .setTunnelingEnabled(false) 
+                    .setExceedAudioConstraintsIfNecessary(true)
+                    .setExceedVideoConstraintsIfNecessary(true)
+                    .setAllowVideoNonSeamlessAdaptiveness(true)
+                    .setAllowAudioMixedMimeTypeAdaptiveness(false) 
+                    .setAllowAudioMixedChannelCountAdaptiveness(false) 
+                    .setViewportSizeToPhysicalDisplaySize(context, true)
+                    .setAudioOffloadPreferences(
+                        AudioOffloadPreferences.Builder()
+                            .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
+                            .build()
+                    )
+                    .build()
+            }
 
-val loadControl = DefaultLoadControl.Builder()
-    .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-    // 🔥 FIX: minBufferMs MUST be less than Live Target Offset!
-    .setBufferDurationsMs(
-        15_000, // minBuffer (15 sec)
-        50_000, // maxBuffer (50 sec)
-        1_000,  // bufferForPlayback
-        3_000   // bufferForPlaybackAfterRebuffer
-    )
-    .setPrioritizeTimeOverSizeThresholds(true)
-    .build()
+            // 🔥 MOD: Fix Buffer duration to stay below Live Edge target
+            val loadControl = DefaultLoadControl.Builder()
+                .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
+                .setBufferDurationsMs(15_000, 50_000, 1_000, 3_000)
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .build()
 
             return ExoPlayer.Builder(context)
                 .setRenderersFactory(renderersFactory)
@@ -171,8 +165,6 @@ val loadControl = DefaultLoadControl.Builder()
                     setHandleAudioBecomingNoisy(true)
                 }
         }
-
-
 
         fun playChannel(context: Context, player: ExoPlayer, channel: Channel) {
             updateProxyState(context)
@@ -197,11 +189,6 @@ val loadControl = DefaultLoadControl.Builder()
                 } catch (e: Exception) { }
             }
 
-            //if (!headers.containsKey("Referer") && actualUrl.contains(".php", ignoreCase = true)) {
-                //headers["Referer"] = "https://www.google.com/"
-                //headers["Origin"]  = "https://www.google.com"
-            //}
-
             val userAgent = headers.getOrElse("User-Agent") { DEFAULT_UA }
             headers["User-Agent"] = userAgent
 
@@ -223,7 +210,8 @@ val loadControl = DefaultLoadControl.Builder()
             val lower = url.lowercase()
             return when {
                 lower.contains(".mpd") || lower.contains("=mpd")  -> MimeTypes.APPLICATION_MPD
-                lower.contains(".m3u8") || lower.contains("=m3u8") || lower.contains("vercel.app") -> MimeTypes.APPLICATION_M3U8
+                // 🔥 MOD: Removed 'vercel.app' hack
+                lower.contains(".m3u8") || lower.contains("=m3u8") -> MimeTypes.APPLICATION_M3U8
                 lower.endsWith(".ts")  || lower.contains(".ts?") || lower.contains("=ts")  -> null
                 else -> null
             }
@@ -309,10 +297,22 @@ val loadControl = DefaultLoadControl.Builder()
         ) {
             if (version != resolverVersion) return
 
-            // 🔥 FIX: Use the base client. OkHttpDataSource already handles headers per chunk.
-val httpFactory = OkHttpDataSource.Factory(okHttpClient)
-    .setUserAgent(userAgent)
-    .setDefaultRequestProperties(headers) 
+            // 🔥 Kept your original 302 Redirect Interceptor - it is necessary!
+            val channelClient = okHttpClient.newBuilder()
+                .addNetworkInterceptor { chain ->
+                    val original = chain.request()
+                    val builder  = original.newBuilder()
+                    
+                    headers.forEach { (key, value) -> 
+                        builder.header(key, value) 
+                    }
+                    
+                    chain.proceed(builder.build())
+                }.build()
+
+            val httpFactory = OkHttpDataSource.Factory(channelClient)
+                .setUserAgent(userAgent)
+                .setDefaultRequestProperties(headers)
 
             var drmSessionManager: DefaultDrmSessionManager? = null
             var drmConfigUuid: UUID? = null
@@ -392,11 +392,13 @@ val httpFactory = OkHttpDataSource.Factory(okHttpClient)
                 }
             }
 
+            // 🔥 MOD: Enabled Adaptive Live Speed so stream doesn't freeze
             val liveConfig = MediaItem.LiveConfiguration.Builder()
-    .setTargetOffsetMs(20_000) // 20 seconds live delay
-    .setMinPlaybackSpeed(0.97f) // Let it slow down to 97% instead of freezing
-    .setMaxPlaybackSpeed(1.03f) // Let it speed up to 103% to catch the live edge
-    .build()
+                .setTargetOffsetMs(20_000)
+                .setMinPlaybackSpeed(0.97f)
+                .setMaxPlaybackSpeed(1.03f)
+                .build()
+
 
             val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl).setLiveConfiguration(liveConfig)
             forcedMimeType?.let { mediaItemBuilder.setMimeType(it) }
@@ -482,13 +484,16 @@ val httpFactory = OkHttpDataSource.Factory(okHttpClient)
 
             val http1Client = client.newBuilder().protocols(listOf(Protocol.HTTP_1_1)).build()
 
+            // 🔥 MOD: Dynamically fetching correct User-Agent
+            val userAgent = headers["User-Agent"] ?: PlayerEngine.DEFAULT_UA
+
             val req = Request.Builder()
                 .url(licenseUrl)
                 .post(body)
                 .header("Host", host)
                 .header("Content-Type", "application/json")
                 .header("Connection", "keep-alive")
-                .header("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 12; Generic Build/SQ3A.220705.004)")
+                .header("User-Agent", userAgent)
                 .build()
 
             http1Client.newCall(req).execute().use { response ->
