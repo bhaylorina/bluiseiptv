@@ -74,9 +74,10 @@ class PlayerEngine {
 
         // 2. THE HTTP/2 FIX + CLEAN BUILDER
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-            .dispatcher(dispatcher)
-            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
-            .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
+    .dispatcher(dispatcher)
+    // Change this line to ONLY use HTTP_1_1
+    .protocols(listOf(Protocol.HTTP_1_1)) 
+    .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
             .readTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
