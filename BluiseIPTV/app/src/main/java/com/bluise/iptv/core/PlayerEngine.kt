@@ -127,27 +127,33 @@ class PlayerEngine {
                 .setEnableDecoderFallback(true)
 
                         val trackSelector = DefaultTrackSelector(context).apply {
-                parameters = buildUponParameters()
-                    .setTunnelingEnabled(true) // Try setting this to true later if you want to test hardware sync
-                    .setExceedAudioConstraintsIfNecessary(true)
-                    .setExceedVideoConstraintsIfNecessary(true)
-                    .setAllowVideoNonSeamlessAdaptiveness(true)
-                    .setAllowAudioMixedMimeTypeAdaptiveness(false) // 🔥 Changed to false
-                    .setAllowAudioMixedChannelCountAdaptiveness(false) // 🔥 Changed to false
-                    .setViewportSizeToPhysicalDisplaySize(context, true)
-                    .setAudioOffloadPreferences(
-                        AudioOffloadPreferences.Builder()
-                            .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
-                            .build()
-                    )
-                    .build()
-            }
-
-            val loadControl = DefaultLoadControl.Builder()
-                .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-                .setBufferDurationsMs(32_000, 65_000, 1_000, 4_000)
-                .setPrioritizeTimeOverSizeThresholds(true)
+    parameters = buildUponParameters()
+        .setTunnelingEnabled(false) // 🔥 FIX: Disable for ClearKey MPD stability
+        .setExceedAudioConstraintsIfNecessary(true)
+        .setExceedVideoConstraintsIfNecessary(true)
+        .setAllowVideoNonSeamlessAdaptiveness(true)
+        .setAllowAudioMixedMimeTypeAdaptiveness(false)
+        .setAllowAudioMixedChannelCountAdaptiveness(false)
+        .setViewportSizeToPhysicalDisplaySize(context, true)
+        .setAudioOffloadPreferences(
+            AudioOffloadPreferences.Builder()
+                .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
                 .build()
+        )
+        .build()
+}
+
+val loadControl = DefaultLoadControl.Builder()
+    .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
+    // 🔥 FIX: minBufferMs MUST be less than Live Target Offset!
+    .setBufferDurationsMs(
+        15_000, // minBuffer (15 sec)
+        50_000, // maxBuffer (50 sec)
+        1_000,  // bufferForPlayback
+        3_000   // bufferForPlaybackAfterRebuffer
+    )
+    .setPrioritizeTimeOverSizeThresholds(true)
+    .build()
 
             return ExoPlayer.Builder(context)
                 .setRenderersFactory(renderersFactory)
@@ -303,24 +309,10 @@ class PlayerEngine {
         ) {
             if (version != resolverVersion) return
 
-            val channelClient = okHttpClient.newBuilder()
-    // 🔥 FIX: Changed 'addInterceptor' to 'addNetworkInterceptor'
-    // Ab 302 Redirect hone par bhi player apne headers nahi bhulega!
-    .addNetworkInterceptor { chain ->
-        val original = chain.request()
-        val builder  = original.newBuilder()
-        
-        // Force inject headers on EVERY network hop
-        headers.forEach { (key, value) -> 
-            builder.header(key, value) // .header() overwrites duplicates
-        }
-        
-        chain.proceed(builder.build())
-    }.build()
-
-            val httpFactory = OkHttpDataSource.Factory(channelClient)
-                .setUserAgent(userAgent)
-                .setDefaultRequestProperties(headers)
+            // 🔥 FIX: Use the base client. OkHttpDataSource already handles headers per chunk.
+val httpFactory = OkHttpDataSource.Factory(okHttpClient)
+    .setUserAgent(userAgent)
+    .setDefaultRequestProperties(headers) 
 
             var drmSessionManager: DefaultDrmSessionManager? = null
             var drmConfigUuid: UUID? = null
@@ -401,11 +393,10 @@ class PlayerEngine {
             }
 
             val liveConfig = MediaItem.LiveConfiguration.Builder()
-    .setTargetOffsetMs(25_000)
-    .setMinPlaybackSpeed(1f)
-    .setMaxPlaybackSpeed(1f)
+    .setTargetOffsetMs(20_000) // 20 seconds live delay
+    .setMinPlaybackSpeed(0.97f) // Let it slow down to 97% instead of freezing
+    .setMaxPlaybackSpeed(1.03f) // Let it speed up to 103% to catch the live edge
     .build()
-
 
             val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl).setLiveConfiguration(liveConfig)
             forcedMimeType?.let { mediaItemBuilder.setMimeType(it) }
