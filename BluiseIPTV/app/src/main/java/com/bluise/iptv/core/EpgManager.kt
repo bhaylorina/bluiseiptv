@@ -1,12 +1,19 @@
 package com.bluise.iptv.core
 
+import android.content.Context
 import android.util.Log
 import okhttp3.Request
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.IOException
 import java.io.InputStream
-import java.util.Locale
 import java.util.zip.GZIPInputStream
 import kotlin.concurrent.thread
 
@@ -30,30 +37,50 @@ object EpgManager {
     // Background thread likhta hai, UI thread padhta hai -> dono is lock se guard hain
     private val lock = Any()
 
-    private val nonAlnum = Regex("[^a-zA-Z0-9]")
-
     @Volatile var isEpgLoaded = false
     @Volatile private var isLoading = false
     var lastEpgLoadTime = 0L
-    private const val CACHE_EXPIRY_MS = 12 * 60 * 60 * 1000L
+    private const val CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000L
 
     // Jo show 2 ghante pehle khatam ho chuka hai usko memory mein rakhne ka faayda nahi
     private const val KEEP_PAST_MS = 2 * 60 * 60 * 1000L
 
+    // 48 ghante se aage ke shows ki zaroorat nahi (current + next hi dikhte hain) -> kam objects, kam memory/GC
+    private const val KEEP_FUTURE_MS = 48 * 60 * 60 * 1000L
+
     // Loading ke dauran itne ms mein ek baar UI ko refresh bolenge
     private const val PROGRESS_NOTIFY_MS = 5000L
 
+    // Parsed EPG ka compact binary cache (cacheDir me). Isse har launch pe 28MB XML parse nahi karna padta.
+    private const val CACHE_FILE = "epg_cache_v1.bin"
+    private const val CACHE_MAGIC = 0x45504731 // "EPG1"
+    private const val MAX_COUNT = 5_000_000
+
+    private const val DEFAULT_EPG_URL =
+        "https://dl.dropboxusercontent.com/scl/fi/s986xqczdsn77t1umeqdu/epg.xml.gz?rlkey=z7tlltik2tu75jjb35lh1vci5&st=fm6xgo12"
+
     var onEpgLoaded: (() -> Unit)? = null
 
-    fun fetchEpgInBackground(epgUrl: String = "https://dl.dropboxusercontent.com/scl/fi/s986xqczdsn77t1umeqdu/epg.xml.gz?rlkey=z7tlltik2tu75jjb35lh1vci5&st=fm6xgo12") {
+    fun fetchEpgInBackground(context: Context, epgUrl: String = DEFAULT_EPG_URL) {
         val now = System.currentTimeMillis()
         if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) return
         if (isLoading) return // pehle se load chal raha hai, dobara thread mat banao
         isLoading = true
 
+        val cacheFile = File(context.applicationContext.cacheDir, CACHE_FILE)
+
         thread(name = "EpgLoader") {
+            // Background priority: UI/video ko CPU milega, phone kam garam
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             val t0 = System.currentTimeMillis()
             try {
+                // 1. Disk cache: turant EPG dikhao. 12 ghante se purana nahi hai toh network/parse skip.
+                if (!isEpgLoaded && loadFromDisk(cacheFile)) {
+                    Log.d(TAG, "EPG disk cache loaded in ${System.currentTimeMillis() - t0} ms")
+                    if (System.currentTimeMillis() - lastEpgLoadTime < CACHE_EXPIRY_MS) return@thread
+                }
+
+                // 2. Cache nahi hai ya purana hai -> download + parse
                 val request = Request.Builder().url(epgUrl).build()
 
                 PlayerEngine.okHttpClient.newCall(request).execute().use { response ->
@@ -106,6 +133,9 @@ object EpgManager {
                     lastEpgLoadTime = System.currentTimeMillis()
                     Log.d(TAG, "EPG loaded: $kept programmes in ${lastEpgLoadTime - t0} ms (firstLoad=$firstLoad)")
                     onEpgLoaded?.invoke()
+
+                    // Next launch ke liye disk pe save (parse ke baad maps me koi nahi likhta, isliye lock ki zaroorat nahi)
+                    saveToDisk(cacheFile)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "EPG Error: ${e.message}")
@@ -115,8 +145,102 @@ object EpgManager {
         }
     }
 
-        private fun cleanName(name: String): String {
-        return name.replace(nonAlnum, "").lowercase(Locale.getDefault())
+    // true = cache se data load ho gaya
+    private fun loadFromDisk(file: File): Boolean {
+        if (!file.exists()) return false
+        return try {
+            DataInputStream(BufferedInputStream(FileInputStream(file), 64 * 1024)).use { input ->
+                if (input.readInt() != CACHE_MAGIC) throw IOException("bad magic")
+                val savedAt = input.readLong()
+                val minEnd = System.currentTimeMillis() - KEEP_PAST_MS
+
+                val idxCount = input.readInt()
+                if (idxCount < 0 || idxCount > MAX_COUNT) throw IOException("bad index count")
+                val idx = HashMap<String, String>(idxCount * 2)
+                repeat(idxCount) {
+                    val key = input.readUTF()
+                    val id = input.readUTF()
+                    idx[key] = id
+                }
+
+                val chCount = input.readInt()
+                if (chCount < 0 || chCount > MAX_COUNT) throw IOException("bad channel count")
+                val epg = HashMap<String, ArrayList<EpgProgram>>(chCount * 2)
+                repeat(chCount) {
+                    val id = input.readUTF()
+                    val n = input.readInt()
+                    if (n < 0 || n > MAX_COUNT) throw IOException("bad programme count")
+                    val list = ArrayList<EpgProgram>(n)
+                    repeat(n) {
+                        val title = input.readUTF()
+                        val s = input.readLong()
+                        val e = input.readLong()
+                        if (e >= minEnd) list.add(EpgProgram(title, s, e)) // purane shows chhod do
+                    }
+                    if (list.isNotEmpty()) epg[id] = list
+                }
+
+                synchronized(lock) {
+                    epgData.clear()
+                    epgData.putAll(epg)
+                    searchIndex.clear()
+                    searchIndex.putAll(idx)
+                    resolveCache.clear()
+                }
+                lastEpgLoadTime = savedAt
+                isEpgLoaded = true
+            }
+            onEpgLoaded?.invoke()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "EPG cache read failed: ${e.message}")
+            file.delete()
+            false
+        }
+    }
+
+    private fun saveToDisk(file: File) {
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        try {
+            DataOutputStream(BufferedOutputStream(FileOutputStream(tmp), 64 * 1024)).use { out ->
+                out.writeInt(CACHE_MAGIC)
+                out.writeLong(lastEpgLoadTime)
+
+                out.writeInt(searchIndex.size)
+                for ((key, id) in searchIndex) {
+                    out.writeUTF(key)
+                    out.writeUTF(id)
+                }
+
+                out.writeInt(epgData.size)
+                for ((id, list) in epgData) {
+                    out.writeUTF(id)
+                    out.writeInt(list.size)
+                    for (p in list) {
+                        out.writeUTF(p.title.take(300))
+                        out.writeLong(p.startMs)
+                        out.writeLong(p.endMs)
+                    }
+                }
+            }
+            if (!tmp.renameTo(file)) {
+                file.delete()
+                tmp.renameTo(file)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "EPG cache write failed: ${e.message}")
+            tmp.delete()
+        }
+    }
+
+    private fun cleanName(name: String): String {
+        // Regex ke bina (har getView pe allocation bachti hai). Sirf a-z, 0-9 rakhta hai, lowercase me.
+        val sb = StringBuilder(name.length)
+        for (c in name) {
+            if ((c in 'a'..'z') || (c in '0'..'9')) sb.append(c)
+            else if (c in 'A'..'Z') sb.append(c + 32)
+        }
+        return sb.toString()
     }
 
     // ---- FAST TIME PARSER (SimpleDateFormat ke bina) ----
@@ -179,6 +303,7 @@ object EpgManager {
         parser.setInput(inputStream, null)
 
         val minEnd = System.currentTimeMillis() - KEEP_PAST_MS
+        val maxStart = System.currentTimeMillis() + KEEP_FUTURE_MS
         var lastNotify = System.currentTimeMillis()
         var kept = 0
 
@@ -220,7 +345,7 @@ object EpgManager {
                         endMs = parseTime(parser.getAttributeValue(null, "stop"))
                         currentTitle = ""
                         // Purana (khatam ho chuka) show -> title padhne ki bhi zaroorat nahi
-                        skipProgramme = endMs != 0L && endMs < minEnd
+                        skipProgramme = (endMs != 0L && endMs < minEnd) || startMs > maxStart
                     } else if (insideProgramme && !skipProgramme && tagName.equals("title", ignoreCase = true)) {
                         currentTitle = parser.nextText()
                     }
