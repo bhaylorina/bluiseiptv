@@ -17,7 +17,6 @@ import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences
 import okhttp3.*
-import java.net.InetAddress
 import okhttp3.ConnectionPool
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
