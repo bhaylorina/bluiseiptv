@@ -138,7 +138,7 @@ class PlayerEngine {
         // Negative = shows video earlier (use if sound comes before lips)
         // 0        = no correction
         // ============================================================
-        private const val AV_SYNC_OFFSET_MS = 200L
+        private const val AV_SYNC_OFFSET_MS = 2L
 
         private const val DEFAULT_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -183,7 +183,7 @@ class PlayerEngine {
         // (e.g. some MAC-based/.php IPTV panels). No channel breaks either way.
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
-            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .protocols(listOf(Protocol.HTTP_2))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
             .readTimeout(10, TimeUnit.SECONDS)
