@@ -5,6 +5,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.util.Log
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import androidx.media3.common.*
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.*
@@ -176,33 +179,56 @@ class PlayerEngine {
             maxRequests = 64
             maxRequestsPerHost = 15
         }
-        val smartDns = object : Dns {
+        // Naya cache data structure jo IPs aur unka time store karega
+data class DnsCacheEntry(val ips: List<InetAddress>, val timestamp: Long)
+
+val smartDns = object : Dns {
+    // Sabhi domains ko alag-alag store karne ke liye map
+    private val dnsCache = ConcurrentHashMap<String, DnsCacheEntry>()
+    private val cacheDuration = 15 * 60 * 1000L // 15 minute
+
     override fun lookup(hostname: String): List<InetAddress> {
+        val currentTime = System.currentTimeMillis()
+        val cachedRecord = dnsCache[hostname]
+
+        // Agar domain pehle se cache me hai aur 15 minute expire nahi hue
+        if (cachedRecord != null && (currentTime - cachedRecord.timestamp) < cacheDuration) {
+            return cachedRecord.ips
+        }
+
+        // Agar naya domain hai ya cache expire ho gaya
         val standardIps = Dns.SYSTEM.lookup(hostname)
-        if (hostname == "jiotvbpkstb.cdn.jio.com" && standardIps.size > 1) {
+        
+        // Ping test sirf tab hoga jab domain ke paas 1 se zyada IPs hon (load balancing)
+        if (standardIps.size > 1) {
             val fastestIp = standardIps.minByOrNull { ip ->
                 try {
                     val start = System.currentTimeMillis()
-                    val socket = java.net.Socket()
-                    // 500ms timeout ke sath TCP ping test
-                    socket.connect(java.net.InetSocketAddress(ip, 443), 500)
+                    val socket = Socket()
+                    socket.connect(InetSocketAddress(ip, 443), 500)
                     socket.close()
                     System.currentTimeMillis() - start
                 } catch (e: Exception) {
                     Long.MAX_VALUE
                 }
             }
+            
             if (fastestIp != null) {
                 val sortedList = standardIps.toMutableList()
                 sortedList.remove(fastestIp)
                 sortedList.add(0, fastestIp)
+                
+                // Fastest result ko cache me save karein
+                dnsCache[hostname] = DnsCacheEntry(sortedList, currentTime)
                 return sortedList
             }
         }
+        
+        // Agar domain ka sirf 1 hi IP hai (jese koi normal API API), to bina ping ke seedha save kardo
+        dnsCache[hostname] = DnsCacheEntry(standardIps, currentTime)
         return standardIps
     }
-        }
-
+}
         // 🔥 MOD: HTTP/2 PREFERRED, HTTP/1.1 as automatic fallback.
         // OkHttp negotiates via ALPN — tries HTTP/2 first (gives multiplexing
         // benefit for DASH streams on CDNs like CloudFront), and silently
