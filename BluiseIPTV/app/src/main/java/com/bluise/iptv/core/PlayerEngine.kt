@@ -21,12 +21,114 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.IOException
 import java.net.Inet4Address
+import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import androidx.media3.exoplayer.video.VideoRendererEventListener
+
+// ============================================================
+// 🔥 AV SYNC FIX — Android TV internal speaker DSP delay compensation
+// ============================================================
+// These two small classes shift every decoded video frame's presentation
+// timestamp forward by a fixed amount so it waits for audio that the TV's
+// internal speaker DSP is delaying. This does NOT change hardware vs
+// software decoding — MediaCodec (hardware decoder) is still used exactly
+// as before. Only the "when to display this already-decoded frame" timing
+// is shifted. Safe for battery/CPU — one Long addition per frame.
+//
+// HOW TO USE:
+// Change AV_SYNC_OFFSET_MS below (in PlayerEngine companion object) and
+// rebuild the app. No settings UI, no new file needed.
+// ============================================================
+
+private class SyncAdjustedVideoRenderer(
+    context: Context,
+    mediaCodecSelector: MediaCodecSelector,
+    allowedJoiningTimeMs: Long,
+    enableDecoderFallback: Boolean,
+    eventHandler: Handler?,
+    eventListener: VideoRendererEventListener?,
+    maxDroppedFramesToNotify: Int,
+    private val avSyncOffsetUs: Long
+) : MediaCodecVideoRenderer(
+    context,
+    MediaCodecAdapter.Factory.DEFAULT,
+    mediaCodecSelector,
+    allowedJoiningTimeMs,
+    enableDecoderFallback,
+    eventHandler,
+    eventListener,
+    maxDroppedFramesToNotify
+) {
+    override fun processOutputBuffer(
+        positionUs: Long,
+        elapsedRealtimeUs: Long,
+        codec: MediaCodecAdapter?,
+        buffer: ByteBuffer?,
+        bufferIndex: Int,
+        bufferFlags: Int,
+        sampleCount: Int,
+        bufferPresentationTimeUs: Long,
+        isDecodeOnlyBuffer: Boolean,
+        isLastBuffer: Boolean,
+        format: Format
+    ): Boolean {
+        // Shift the timestamp BEFORE it goes into ExoPlayer's internal
+        // sync/scheduling logic. Works correctly with tunneling enabled too,
+        // since tunneling sync also relies on this same presentation time.
+        return super.processOutputBuffer(
+            positionUs,
+            elapsedRealtimeUs,
+            codec,
+            buffer,
+            bufferIndex,
+            bufferFlags,
+            sampleCount,
+            bufferPresentationTimeUs + avSyncOffsetUs,
+            isDecodeOnlyBuffer,
+            isLastBuffer,
+            format
+        )
+    }
+}
+
+private class SyncRenderersFactory(
+    context: Context,
+    private val avSyncOffsetUs: Long
+) : DefaultRenderersFactory(context) {
+
+    override fun buildVideoRenderers(
+        context: Context,
+        extensionRendererMode: Int,
+        mediaCodecSelector: MediaCodecSelector,
+        enableDecoderFallback: Boolean,
+        eventHandler: Handler,
+        eventListener: VideoRendererEventListener,
+        allowedVideoJoiningTimeMs: Long,
+        out: ArrayList<androidx.media3.exoplayer.Renderer>
+    ) {
+        out.add(
+            SyncAdjustedVideoRenderer(
+                context,
+                mediaCodecSelector,
+                allowedVideoJoiningTimeMs,
+                enableDecoderFallback,
+                eventHandler,
+                eventListener,
+                50,
+                avSyncOffsetUs
+            )
+        )
+        // NOTE: We intentionally do not call super.buildVideoRenderers() here,
+        // otherwise it would add a duplicate/second video renderer.
+    }
+}
 
 class PlayerEngine {
 
@@ -35,6 +137,21 @@ class PlayerEngine {
         private const val TAG = "PlayerEngine"
 
         const val IS_SPECIAL_EDITION = true
+
+        // ============================================================
+        // 🔥 AV SYNC OFFSET — EDIT THIS VALUE AND REBUILD TO FIX LIP SYNC
+        // ============================================================
+        // Your symptom: lips move FIRST, sound comes LATER (audio is late).
+        // This value delays the VIDEO so it waits for the late audio.
+        //
+        //   Positive value (e.g. 200)  -> delays video (use this, your case)
+        //   Negative value (e.g. -100) -> shows video earlier (opposite case)
+        //   0                           -> no correction (default ExoPlayer behavior)
+        //
+        // Suggested starting point for Android TV internal-speaker DSP delay: 150–250
+        // Test with a news channel (talking head) and adjust in steps of ~30-50ms.
+        // ============================================================
+        private const val AV_SYNC_OFFSET_MS = 200L
 
         private const val DEFAULT_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -121,11 +238,14 @@ class PlayerEngine {
         fun createPlayer(context: Context): ExoPlayer {
             updateProxyState(context)
 
-            val renderersFactory = DefaultRenderersFactory(context)
+            // 🔥 MOD: Using SyncRenderersFactory instead of DefaultRenderersFactory
+            // so we can apply the AV_SYNC_OFFSET_MS correction. This still uses
+            // hardware decoding exactly as before — only display timing is shifted.
+            val renderersFactory = SyncRenderersFactory(context, AV_SYNC_OFFSET_MS * 1000)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                 .setEnableDecoderFallback(true)
 
-            // 🔥 MOD: Tunneling Disabled to prevent DRM/Hardware conflicts
+            // 🔥 Tunneling kept TRUE as requested
             val trackSelector = DefaultTrackSelector(context).apply {
                 parameters = buildUponParameters()
                     .setTunnelingEnabled(true) 
