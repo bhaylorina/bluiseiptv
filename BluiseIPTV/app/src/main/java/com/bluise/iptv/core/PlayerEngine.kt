@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences
 import okhttp3.*
+import java.net.InetAddress
 import okhttp3.ConnectionPool
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -175,6 +176,32 @@ class PlayerEngine {
             maxRequests = 64
             maxRequestsPerHost = 15
         }
+        val smartDns = object : Dns {
+    override fun lookup(hostname: String): List<InetAddress> {
+        val standardIps = Dns.SYSTEM.lookup(hostname)
+        if (hostname == "jiotvbpkstb.cdn.jio.com" && standardIps.size > 1) {
+            val fastestIp = standardIps.minByOrNull { ip ->
+                try {
+                    val start = System.currentTimeMillis()
+                    val socket = java.net.Socket()
+                    // 500ms timeout ke sath TCP ping test
+                    socket.connect(java.net.InetSocketAddress(ip, 443), 500)
+                    socket.close()
+                    System.currentTimeMillis() - start
+                } catch (e: Exception) {
+                    Long.MAX_VALUE
+                }
+            }
+            if (fastestIp != null) {
+                val sortedList = standardIps.toMutableList()
+                sortedList.remove(fastestIp)
+                sortedList.add(0, fastestIp)
+                return sortedList
+            }
+        }
+        return standardIps
+    }
+        }
 
         // 🔥 MOD: HTTP/2 PREFERRED, HTTP/1.1 as automatic fallback.
         // OkHttp negotiates via ALPN — tries HTTP/2 first (gives multiplexing
@@ -183,6 +210,7 @@ class PlayerEngine {
         // (e.g. some MAC-based/.php IPTV panels). No channel breaks either way.
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
+            .dns(smartDns)
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
