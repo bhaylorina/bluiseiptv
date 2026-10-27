@@ -35,16 +35,12 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 // ============================================================
 // 🔥 AV SYNC FIX — Android TV internal speaker DSP delay compensation
 // ============================================================
-// These two small classes shift every decoded video frame's presentation
-// timestamp forward by a fixed amount so it waits for audio that the TV's
-// internal speaker DSP is delaying. This does NOT change hardware vs
-// software decoding — MediaCodec (hardware decoder) is still used exactly
-// as before. Only the "when to display this already-decoded frame" timing
-// is shifted. Safe for battery/CPU — one Long addition per frame.
+// Shifts every decoded video frame's presentation timestamp forward by a
+// fixed amount so it waits for audio that the TV's internal speaker DSP is
+// delaying. Hardware decoding (MediaCodec) is untouched — only display
+// timing is shifted. Safe for battery/CPU.
 //
-// HOW TO USE:
-// Change AV_SYNC_OFFSET_MS below (in PlayerEngine companion object) and
-// rebuild the app. No settings UI, no new file needed.
+// Change AV_SYNC_OFFSET_MS in PlayerEngine companion object and rebuild.
 // ============================================================
 
 private class SyncAdjustedVideoRenderer(
@@ -79,9 +75,6 @@ private class SyncAdjustedVideoRenderer(
         isLastBuffer: Boolean,
         format: Format
     ): Boolean {
-        // Shift the timestamp BEFORE it goes into ExoPlayer's internal
-        // sync/scheduling logic. Works correctly with tunneling enabled too,
-        // since tunneling sync also relies on this same presentation time.
         return super.processOutputBuffer(
             positionUs,
             elapsedRealtimeUs,
@@ -125,8 +118,8 @@ private class SyncRenderersFactory(
                 avSyncOffsetUs
             )
         )
-        // NOTE: We intentionally do not call super.buildVideoRenderers() here,
-        // otherwise it would add a duplicate/second video renderer.
+        // NOTE: super.buildVideoRenderers() intentionally NOT called —
+        // otherwise it would add a duplicate video renderer.
     }
 }
 
@@ -141,15 +134,9 @@ class PlayerEngine {
         // ============================================================
         // 🔥 AV SYNC OFFSET — EDIT THIS VALUE AND REBUILD TO FIX LIP SYNC
         // ============================================================
-        // Your symptom: lips move FIRST, sound comes LATER (audio is late).
-        // This value delays the VIDEO so it waits for the late audio.
-        //
-        //   Positive value (e.g. 200)  -> delays video (use this, your case)
-        //   Negative value (e.g. -100) -> shows video earlier (opposite case)
-        //   0                           -> no correction (default ExoPlayer behavior)
-        //
-        // Suggested starting point for Android TV internal-speaker DSP delay: 150–250
-        // Test with a news channel (talking head) and adjust in steps of ~30-50ms.
+        // Positive = delays video (use this if lips move before sound)
+        // Negative = shows video earlier (use if sound comes before lips)
+        // 0        = no correction
         // ============================================================
         private const val AV_SYNC_OFFSET_MS = 200L
 
@@ -189,12 +176,15 @@ class PlayerEngine {
             maxRequestsPerHost = 15
         }
 
-        // 2. THE HTTP/2 FIX + CLEAN BUILDER
+        // 🔥 MOD: HTTP/2 PREFERRED, HTTP/1.1 as automatic fallback.
+        // OkHttp negotiates via ALPN — tries HTTP/2 first (gives multiplexing
+        // benefit for DASH streams on CDNs like CloudFront), and silently
+        // falls back to HTTP/1.1 only if the server doesn't support HTTP/2
+        // (e.g. some MAC-based/.php IPTV panels). No channel breaks either way.
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-    .dispatcher(dispatcher)
-    // Change this line to ONLY use HTTP_1_1
-    .protocols(listOf(Protocol.HTTP_1_1)) 
-    .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
+            .dispatcher(dispatcher)
+            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
             .readTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
@@ -238,9 +228,8 @@ class PlayerEngine {
         fun createPlayer(context: Context): ExoPlayer {
             updateProxyState(context)
 
-            // 🔥 MOD: Using SyncRenderersFactory instead of DefaultRenderersFactory
-            // so we can apply the AV_SYNC_OFFSET_MS correction. This still uses
-            // hardware decoding exactly as before — only display timing is shifted.
+            // 🔥 MOD: Using SyncRenderersFactory for AV sync offset correction.
+            // Still 100% hardware decoding — only display timing is shifted.
             val renderersFactory = SyncRenderersFactory(context, AV_SYNC_OFFSET_MS * 1000)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                 .setEnableDecoderFallback(true)
@@ -263,10 +252,12 @@ class PlayerEngine {
                     .build()
             }
 
-            // 🔥 MOD: Fix Buffer duration to stay below Live Edge target
+            // 🔥 MOD: Increased playback-start and rebuffer margins so small
+            // network dips during congestion don't immediately cause a stall.
+            // (500ms/3000ms was too thin — gave zero recovery headroom.)
             val loadControl = DefaultLoadControl.Builder()
                 .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-                .setBufferDurationsMs(25_000, 50_000, 500, 3_000)
+                .setBufferDurationsMs(25_000, 50_000, 2_500, 5_000)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
 
@@ -513,13 +504,14 @@ class PlayerEngine {
                 }
             }
 
-            // 🔥 MOD: Enabled Adaptive Live Speed so stream doesn't freeze
+            // 🔥 MOD: Adaptive live speed re-enabled with small elastic range
+            // so the player can micro-adjust speed (±4%) to absorb small
+            // network slowdowns instead of hard-stalling immediately.
             val liveConfig = MediaItem.LiveConfiguration.Builder()
-    .setTargetOffsetMs(30_000)
-    .setMinPlaybackSpeed(1f)
-    .setMaxPlaybackSpeed(1f)
-    .build()
-
+                .setTargetOffsetMs(30_000)
+                .setMinPlaybackSpeed(0.96f)
+                .setMaxPlaybackSpeed(1.04f)
+                .build()
 
             val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl).setLiveConfiguration(liveConfig)
             forcedMimeType?.let { mediaItemBuilder.setMimeType(it) }
@@ -603,6 +595,8 @@ class PlayerEngine {
             val body = requestData.toRequestBody("application/json".toMediaType())
             val host = licenseUrl.toHttpUrl().host
 
+            // NOTE: ClearKey license POST kept on HTTP/1.1 deliberately —
+            // some license servers don't handle HTTP/2 POST bodies reliably.
             val http1Client = client.newBuilder().protocols(listOf(Protocol.HTTP_1_1)).build()
 
             // 🔥 MOD: Dynamically fetching correct User-Agent
