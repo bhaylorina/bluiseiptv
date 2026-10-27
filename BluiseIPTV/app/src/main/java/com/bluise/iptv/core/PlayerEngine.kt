@@ -183,7 +183,7 @@ class PlayerEngine {
         // (e.g. some MAC-based/.php IPTV panels). No channel breaks either way.
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
-            .protocols(listOf(Protocol.HTTP_2))
+            .protocols(listOf(Protocol.H2_PRIOR_KNOWLEDGE))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
             .readTimeout(10, TimeUnit.SECONDS)
