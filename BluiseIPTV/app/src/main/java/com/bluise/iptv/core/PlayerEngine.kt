@@ -144,7 +144,7 @@ class PlayerEngine {
         private const val AV_SYNC_OFFSET_MS = 2L
 
         private const val DEFAULT_UA =
-            "OTT Navigator/1.7.5.2 (Linux;Android 17; en; 69m33k)"
+            "OTT Navigator/1.7.5.2 (Linux;Android 17; 69m33k) ExoPlayerLib/2.15.1"
 
         @JvmStatic
         @Volatile
@@ -233,7 +233,7 @@ val smartDns = object : Dns {
         // (e.g. some MAC-based/.php IPTV panels). No channel breaks either way.
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
-            .dns(smartDns)
+            //.dns(smartDns)
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
