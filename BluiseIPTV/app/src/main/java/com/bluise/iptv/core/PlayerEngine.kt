@@ -144,9 +144,7 @@ class PlayerEngine {
         private const val AV_SYNC_OFFSET_MS = 2L
 
         private const val DEFAULT_UA =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) " +
-            "Chrome/120.0.0.0 Safari/537.36"
+            "OTT Navigator/1.7.5.2 (Linux;Android 17; en; 69m33k)"
 
         @JvmStatic
         @Volatile
