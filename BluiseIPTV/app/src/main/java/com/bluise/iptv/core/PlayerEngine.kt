@@ -310,7 +310,7 @@ val smartDns = object : Dns {
             // (500ms/3000ms was too thin — gave zero recovery headroom.)
             val loadControl = DefaultLoadControl.Builder()
                 .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-                .setBufferDurationsMs(25_000, 50_000, 2_500, 5_000)
+                .setBufferDurationsMs(25_000, 50_000, 500, 5_000)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
 
