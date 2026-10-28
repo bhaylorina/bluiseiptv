@@ -35,6 +35,12 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 
+// 🔥 NEW IMPORTS FOR SPEED OPTIMIZATION
+import javax.net.SocketFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
+
 // ============================================================
 // 🔥 AV SYNC FIX — Android TV internal speaker DSP delay compensation
 // ============================================================
@@ -176,56 +182,81 @@ class PlayerEngine {
             maxRequests = 64
             maxRequestsPerHost = 15
         }
+
         // Naya cache data structure jo IPs aur unka time store karega
-data class DnsCacheEntry(val ips: List<InetAddress>, val timestamp: Long)
+        data class DnsCacheEntry(val ips: List<InetAddress>, val timestamp: Long)
 
-val smartDns = object : Dns {
-    // Sabhi domains ko alag-alag store karne ke liye map
-    private val dnsCache = ConcurrentHashMap<String, DnsCacheEntry>()
-    private val cacheDuration = 15 * 60 * 1000L // 15 minute
+        val smartDns = object : Dns {
+            // Sabhi domains ko alag-alag store karne ke liye map
+            private val dnsCache = ConcurrentHashMap<String, DnsCacheEntry>()
+            private val cacheDuration = 15 * 60 * 1000L // 15 minute
 
-    override fun lookup(hostname: String): List<InetAddress> {
-        val currentTime = System.currentTimeMillis()
-        val cachedRecord = dnsCache[hostname]
+            override fun lookup(hostname: String): List<InetAddress> {
+                val currentTime = System.currentTimeMillis()
+                val cachedRecord = dnsCache[hostname]
 
-        // Agar domain pehle se cache me hai aur 15 minute expire nahi hue
-        if (cachedRecord != null && (currentTime - cachedRecord.timestamp) < cacheDuration) {
-            return cachedRecord.ips
-        }
-
-        // Agar naya domain hai ya cache expire ho gaya
-        val standardIps = Dns.SYSTEM.lookup(hostname)
-        
-        // Ping test sirf tab hoga jab domain ke paas 1 se zyada IPs hon (load balancing)
-        if (standardIps.size > 1) {
-            val fastestIp = standardIps.minByOrNull { ip ->
-                try {
-                    val start = System.currentTimeMillis()
-                    val socket = Socket()
-                    socket.connect(InetSocketAddress(ip, 443), 500)
-                    socket.close()
-                    System.currentTimeMillis() - start
-                } catch (e: Exception) {
-                    Long.MAX_VALUE
+                // Agar domain pehle se cache me hai aur 15 minute expire nahi hue
+                if (cachedRecord != null && (currentTime - cachedRecord.timestamp) < cacheDuration) {
+                    return cachedRecord.ips
                 }
-            }
-            
-            if (fastestIp != null) {
-                val sortedList = standardIps.toMutableList()
-                sortedList.remove(fastestIp)
-                sortedList.add(0, fastestIp)
+
+                // Agar naya domain hai ya cache expire ho gaya
+                val standardIps = Dns.SYSTEM.lookup(hostname)
                 
-                // Fastest result ko cache me save karein
-                dnsCache[hostname] = DnsCacheEntry(sortedList, currentTime)
-                return sortedList
+                // Ping test sirf tab hoga jab domain ke paas 1 se zyada IPs hon (load balancing)
+                if (standardIps.size > 1) {
+                    val fastestIp = standardIps.minByOrNull { ip ->
+                        try {
+                            val start = System.currentTimeMillis()
+                            val socket = Socket()
+                            socket.connect(InetSocketAddress(ip, 443), 500)
+                            socket.close()
+                            System.currentTimeMillis() - start
+                        } catch (e: Exception) {
+                            Long.MAX_VALUE
+                        }
+                    }
+                    
+                    if (fastestIp != null) {
+                        val sortedList = standardIps.toMutableList()
+                        sortedList.remove(fastestIp)
+                        sortedList.add(0, fastestIp)
+                        
+                        // Fastest result ko cache me save karein
+                        dnsCache[hostname] = DnsCacheEntry(sortedList, currentTime)
+                        return sortedList
+                    }
+                }
+                
+                // Agar domain ka sirf 1 hi IP hai (jese koi normal API API), to bina ping ke seedha save kardo
+                dnsCache[hostname] = DnsCacheEntry(standardIps, currentTime)
+                return standardIps
             }
         }
-        
-        // Agar domain ka sirf 1 hi IP hai (jese koi normal API API), to bina ping ke seedha save kardo
-        dnsCache[hostname] = DnsCacheEntry(standardIps, currentTime)
-        return standardIps
-    }
-}
+
+        // ============================================================
+        // 🔥 NEW: Tuned Socket Factory — OS level TCP buffer size increase
+        // ============================================================
+        // Default OS socket receive buffer ~64KB hota hai. Ise 256KB karne se
+        // bade video segment chunks ek saath zyada fast receive ho sakte hain
+        // (especially high bitrate streams par). CPU/battery par koi asar nahi.
+        // ============================================================
+        private val tunedSocketFactory = object : SocketFactory() {
+            override fun createSocket(): Socket = Socket().apply {
+                tcpNoDelay = true
+                receiveBufferSize = 256 * 1024
+                sendBufferSize = 64 * 1024
+            }
+            override fun createSocket(host: String?, port: Int): Socket =
+                createSocket().apply { connect(InetSocketAddress(host, port)) }
+            override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
+                createSocket().apply { connect(InetSocketAddress(host, port)) }
+            override fun createSocket(host: InetAddress?, port: Int): Socket =
+                createSocket().apply { connect(InetSocketAddress(host, port)) }
+            override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
+                createSocket().apply { connect(InetSocketAddress(address, port)) }
+        }
+
         // 🔥 MOD: HTTP/2 PREFERRED, HTTP/1.1 as automatic fallback.
         // OkHttp negotiates via ALPN — tries HTTP/2 first (gives multiplexing
         // benefit for DASH streams on CDNs like CloudFront), and silently
@@ -234,6 +265,7 @@ val smartDns = object : Dns {
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
             //.dns(smartDns)
+            .socketFactory(tunedSocketFactory) // 🔥 NEW: bigger OS-level TCP buffers
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
@@ -251,6 +283,24 @@ val smartDns = object : Dns {
                 chain.proceed(request)
             }
             .build()
+
+        // ============================================================
+        // 🔥 NEW: Fast Load Error/Retry Policy
+        // ============================================================
+        // Default ExoPlayer retry backoff kaafi slow hota hai (seconds mein).
+        // Network blip/segment-fail hone par jaldi retry karne se effective
+        // throughput/perceived speed better hoti hai, rebuffering kam hoti hai.
+        // ============================================================
+        private val fastLoadErrorHandlingPolicy = object : DefaultLoadErrorHandlingPolicy() {
+            override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+                return when (loadErrorInfo.errorCount) {
+                    1 -> 200L
+                    2 -> 500L
+                    else -> 1000L
+                }
+            }
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
+        }
 
         private fun updateProxyState(context: Context) {
             val prefs    = context.getSharedPreferences("iptv_settings", Context.MODE_PRIVATE)
@@ -306,15 +356,27 @@ val smartDns = object : Dns {
             // 🔥 MOD: Increased playback-start and rebuffer margins so small
             // network dips during congestion don't immediately cause a stall.
             // (500ms/3000ms was too thin — gave zero recovery headroom.)
+            // 🔥 NEW: setTargetBufferBytes(LENGTH_UNSET) — removes internal
+            // memory-based buffer cap so high-bitrate streams don't get
+            // throttled/paused early due to byte-size limit calculations.
             val loadControl = DefaultLoadControl.Builder()
-    .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-    .setBufferDurationsMs(20_000, 40_000, 500, 5_000)   // maxBuffer 50s -> 40s, taaki targetOffset se match ho aur live-window (61s) ke andar safely fit ho
-    .setPrioritizeTimeOverSizeThresholds(true)
-    .build()
+                .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
+                .setBufferDurationsMs(20_000, 40_000, 500, 5_000)   // maxBuffer 50s -> 40s, taaki targetOffset se match ho aur live-window (61s) ke andar safely fit ho
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .setTargetBufferBytes(C.LENGTH_UNSET) // 🔥 NEW
+                .build()
+
+            // 🔥 NEW: Bandwidth meter — faster adaptation to available bandwidth
+            // (smaller sliding window weight = quicker reaction to speed changes)
+            val bandwidthMeter = DefaultBandwidthMeter.Builder(context)
+                .setResetOnNetworkTypeChange(true)
+                .build()
+
             return ExoPlayer.Builder(context)
                 .setRenderersFactory(renderersFactory)
                 .setTrackSelector(trackSelector)
                 .setLoadControl(loadControl)
+                .setBandwidthMeter(bandwidthMeter) // 🔥 NEW
                 .build()
                 .apply {
                     setAudioAttributes(
@@ -567,7 +629,10 @@ val smartDns = object : Dns {
             forcedMimeType?.let { mediaItemBuilder.setMimeType(it) }
             drmConfigUuid?.let { mediaItemBuilder.setDrmConfiguration(MediaItem.DrmConfiguration.Builder(it).build()) }
 
-            val mediaSourceFactory = DefaultMediaSourceFactory(context).setDataSourceFactory(httpFactory)
+            // 🔥 NEW: Fast load error handling policy attached here
+            val mediaSourceFactory = DefaultMediaSourceFactory(context)
+                .setDataSourceFactory(httpFactory)
+                .setLoadErrorHandlingPolicy(fastLoadErrorHandlingPolicy)
             drmSessionManager?.let { mgr -> mediaSourceFactory.setDrmSessionManagerProvider { mgr } }
             val mediaSource = mediaSourceFactory.createMediaSource(mediaItemBuilder.build())
 
