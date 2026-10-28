@@ -144,9 +144,7 @@ class PlayerEngine {
         private const val AV_SYNC_OFFSET_MS = 2L
 
         private const val DEFAULT_UA =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) " +
-            "Chrome/120.0.0.0 Safari/537.36"
+            "OTT Navigator/1.7.5.2 (Linux;Android 17; 69m33k) ExoPlayerLib/2.15.1"
 
         @JvmStatic
         @Volatile
@@ -309,11 +307,10 @@ val smartDns = object : Dns {
             // network dips during congestion don't immediately cause a stall.
             // (500ms/3000ms was too thin — gave zero recovery headroom.)
             val loadControl = DefaultLoadControl.Builder()
-                .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-                .setBufferDurationsMs(25_000, 50_000, 2_500, 5_000)
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .build()
-
+    .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
+    .setBufferDurationsMs(20_000, 40_000, 500, 5_000)   // maxBuffer 50s -> 40s, taaki targetOffset se match ho aur live-window (61s) ke andar safely fit ho
+    .setPrioritizeTimeOverSizeThresholds(true)
+    .build()
             return ExoPlayer.Builder(context)
                 .setRenderersFactory(renderersFactory)
                 .setTrackSelector(trackSelector)
@@ -561,7 +558,7 @@ val smartDns = object : Dns {
             // so the player can micro-adjust speed (±4%) to absorb small
             // network slowdowns instead of hard-stalling immediately.
             val liveConfig = MediaItem.LiveConfiguration.Builder()
-                .setTargetOffsetMs(30_000)
+                .setTargetOffsetMs(45_000)
                 .setMinPlaybackSpeed(0.96f)
                 .setMaxPlaybackSpeed(1.04f)
                 .build()
