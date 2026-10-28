@@ -307,9 +307,15 @@ val smartDns = object : Dns {
             // network dips during congestion don't immediately cause a stall.
             // (500ms/3000ms was too thin — gave zero recovery headroom.)
             val loadControl = DefaultLoadControl.Builder()
-    .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-    .setBufferDurationsMs(20_000, 40_000, 500, 5_000)   // maxBuffer 50s -> 40s, taaki targetOffset se match ho aur live-window (61s) ke andar safely fit ho
+    // 🔥 64KB ki jagah 512KB (8 guna bada) data pipeline open karein 
+    // Taaki player chote tukdo ke bajaye ek saath bada data kheeche
+    .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE * 8)) 
+    // Aapki 40 second wali sahi setting
+    .setBufferDurationsMs(20_000, 40_000, 500, 2_000)
     .setPrioritizeTimeOverSizeThresholds(true)
+    // 🔥 Ye sabse zaroori hai: ExoPlayer ko memory limit ki wajah se 
+    // data download rokne se bachane ke liye isko UNSET karna padta hai
+    .setTargetBufferBytes(C.LENGTH_UNSET) 
     .build()
             return ExoPlayer.Builder(context)
                 .setRenderersFactory(renderersFactory)
