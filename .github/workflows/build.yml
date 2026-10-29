@@ -9,9 +9,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -23,41 +20,26 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
 
-    - name: Download and Setup Android cmdline-tools
+    - name: Install Android SDK 37 Canary
       run: |
-        mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
-        cd $ANDROID_SDK_ROOT/cmdline-tools
-        curl -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-        unzip -q cmdline-tools.zip
-        mv cmdline-tools latest
-        rm cmdline-tools.zip
+        echo "ANDROID_HOME=$ANDROID_HOME"
+        echo "Installing Android SDK 37..."
 
-    - name: Add SDK tools to PATH
+        yes | sdkmanager --licenses || true
+
+        sdkmanager --channel=3 "platforms;android-37.0"
+
+        echo "Installed SDK platforms:"
+        ls -la "$ANDROID_HOME/platforms"
+
+    - name: Create Android 37 SDK Alias
       run: |
-        echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
-        echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
+        if [ -d "$ANDROID_HOME/platforms/android-37.0" ] && [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
+          ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
+        fi
 
-    - name: Accept ALL SDK Licenses
-      run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses --sdk_root=$ANDROID_SDK_ROOT || true
-
-    - name: Install Android 36 (Base SDK)
-      run: |
-        $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT "platform-tools" "platforms;android-36" "build-tools;35.0.0"
-
-    # 🔥 🚀 MANUAL API 37 SETUP HACK 🔥
-    - name: Setup Manual API 37 Folder
-      run: |
-        echo "Creating Manual API 37 Platform for OkHttp..."
-        mkdir -p $ANDROID_SDK_ROOT/platforms/android-37
-        
-        # Clone API 36 to API 37
-        cp -r $ANDROID_SDK_ROOT/platforms/android-36/* $ANDROID_SDK_ROOT/platforms/android-37/
-        
-        # Modify properties to trick Gradle into reading it as API 37
-        sed -i 's/AndroidVersion.ApiLevel=36/AndroidVersion.ApiLevel=37/g' $ANDROID_SDK_ROOT/platforms/android-37/source.properties
-        sed -i 's/Platform.Version=15/Platform.Version=16/g' $ANDROID_SDK_ROOT/platforms/android-37/source.properties
-        
-        echo "API 37 Setup Complete!"
+        echo "Android SDK 37 paths:"
+        ls -la "$ANDROID_HOME/platforms" | grep android-37
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
