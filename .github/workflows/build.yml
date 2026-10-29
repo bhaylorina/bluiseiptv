@@ -31,7 +31,7 @@ jobs:
 
         "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
 
-    # Install Android 17 / API 37 Preview
+    # Install Android 17 / API 37 Preview & Fix Metadata for Gradle
     - name: Install Android SDK 37 Preview
       run: |
         SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
@@ -44,9 +44,13 @@ jobs:
         echo "Installing Android 37.0..."
         "$SDKMANAGER" --channel=3 "platforms;android-37.0"
 
-        # 🔥 THE FINAL FIX: Renaming android-37.0 to android-37 so Gradle finds it perfectly
-        echo "Aligning folder name for Gradle compatibility..."
+        # 🔥 THE FINAL FIX: Renaming folder AND updating internal metadata
+        echo "Aligning folder name and internal metadata for Gradle compatibility..."
         mv "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
+        
+        # Fixing the internal IDs so Gradle doesn't complain about inconsistent location
+        sed -i 's/android-37\.0/android-37/g' "$ANDROID_HOME/platforms/android-37/source.properties" || true
+        sed -i 's/android-37\.0/android-37/g' "$ANDROID_HOME/platforms/android-37/package.xml" || true
 
         echo "Installed Android platforms:"
         ls -la "$ANDROID_HOME/platforms"
