@@ -239,27 +239,27 @@ class PlayerEngine {
         // ============================================================
         // ðŸ”¥ NEW: Tuned Socket Factory â€” OS level TCP buffer size increase
         // ============================================================
-        private val tunedSocketFactory = object : SocketFactory() {
-            override fun createSocket(): Socket = Socket().apply {
-                tcpNoDelay = true
-                receiveBufferSize = 256 * 1024
-                sendBufferSize = 64 * 1024
-            }
-            override fun createSocket(host: String?, port: Int): Socket =
-                createSocket().apply { connect(InetSocketAddress(host, port)) }
-            override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
-                createSocket().apply { connect(InetSocketAddress(host, port)) }
-            override fun createSocket(host: InetAddress?, port: Int): Socket =
-                createSocket().apply { connect(InetSocketAddress(host, port)) }
-            override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
-                createSocket().apply { connect(InetSocketAddress(address, port)) }
-        }
+        //private val tunedSocketFactory = object : SocketFactory() {
+            //override fun createSocket(): Socket = Socket().apply {
+                //tcpNoDelay = true
+                //receiveBufferSize = 256 * 1024
+                //sendBufferSize = 64 * 1024
+            //}
+            //override fun createSocket(host: String?, port: Int): Socket =
+                //createSocket().apply { connect(InetSocketAddress(host, port)) }
+            //override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
+                //createSocket().apply { connect(InetSocketAddress(host, port)) }
+            //override fun createSocket(host: InetAddress?, port: Int): Socket =
+                //createSocket().apply { connect(InetSocketAddress(host, port)) }
+            //override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
+                //createSocket().apply { connect(InetSocketAddress(address, port)) }
+        //}
 
         // ðŸ”¥ MOD: HTTP/2 PREFERRED, HTTP/1.1 as automatic fallback.
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
             //.dns(smartDns)
-            .socketFactory(tunedSocketFactory) // ðŸ”¥ NEW: bigger OS-level TCP buffers
+            //.socketFactory(tunedSocketFactory) // ðŸ”¥ NEW: bigger OS-level TCP buffers
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
