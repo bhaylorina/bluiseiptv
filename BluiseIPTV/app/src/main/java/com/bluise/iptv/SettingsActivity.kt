@@ -82,7 +82,7 @@ class SettingsActivity : AppCompatActivity() {
         rbLow.setPadding(20, 20, 20, 20)
         
         val rbHigh = RadioButton(this)
-        rbHigh.text = "High Priority (Force Best)"
+        rbHigh.text = "High Priority (Force Highest Bitrate)"
         rbHigh.textSize = 20f
         rbHigh.setTextColor(Color.WHITE)
         rbHigh.setPadding(20, 20, 20, 20)
@@ -99,9 +99,9 @@ class SettingsActivity : AppCompatActivity() {
         layout.addView(btnSave)
 
         // ==========================================
-        // 🔥 NETWORK SETTINGS (Special Edition Only)
+        // 🔥 NETWORK SETTINGS
         // ==========================================
-        var proxySwitch: Switch? = null // TV Focus ke liye bahar declare kiya hai
+        var proxySwitch: Switch? = null 
 
         if (PlayerEngine.IS_SPECIAL_EDITION) {
             val proxySpacer = View(this)
@@ -186,11 +186,11 @@ class SettingsActivity : AppCompatActivity() {
             else -> rbAuto.isChecked = true
         }
 
-        // TV Focus Logic (Dynamic array depending on Master Lock)
-        if (TvManager.isTvMode) {
+        // TV Focus Logic 
+        val isTvMode = (getSystemService(Context.UI_MODE_SERVICE) as android.app.UiModeManager).currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+        if (isTvMode) {
             val focusableViews = mutableListOf<View>(rbAuto, rbLow, rbHigh, btnSave, btnBackup, btnRestore)
             
-            // Agar switch bana hai, toh list mein daal do
             proxySwitch?.let { focusableViews.add(4, it) }
             
             val focusListener = View.OnFocusChangeListener { v, hasFocus ->
@@ -213,7 +213,6 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        // 🚀 SMART SAVE: Ab ye check karega ki setting badli hai ya nahi
         fun saveSettings(isExplicitSave: Boolean) {
             val currentMode = prefs.getInt("video_mode", 0)
             val modeToSave = when {
@@ -222,14 +221,12 @@ class SettingsActivity : AppCompatActivity() {
                 else -> 0
             }
 
-            // Agar user ne setting actually change ki hai
             if (currentMode != modeToSave) {
                 prefs.edit().putInt("video_mode", modeToSave).apply()
                 if (isExplicitSave) {
                     Toast.makeText(this, "Video Settings Saved!", Toast.LENGTH_SHORT).show()
                 }
             } else {
-                // Agar bina change kiye "Save" button daba diya
                 if (isExplicitSave) {
                     Toast.makeText(this, "No changes made.", Toast.LENGTH_SHORT).show()
                 }
@@ -238,7 +235,6 @@ class SettingsActivity : AppCompatActivity() {
         
         btnSave.setOnClickListener { saveSettings(true) }
 
-        // 👇 YE PURANI LINES HAIN (Backup/Restore) JO MAINE MISS KAR DI THI 👇
         btnBackup.setOnClickListener {
             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
@@ -255,9 +251,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             restoreLauncher.launch(intent)
         }
-        // 👆 ----------------------------------------------------------- 👆
 
-        // 🚀 THE FIX: Back dabane par SILENTLY save karega, koi Ghost Toast nahi! (false)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { 
                 saveSettings(false) 
