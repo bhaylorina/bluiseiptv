@@ -5,17 +5,17 @@ plugins {
 
 android {
     namespace 'com.bluise.iptv'
-    compileSdk 35
+    compileSdk 36 // 🔥 Updated to latest API 36
 
     defaultConfig {
         applicationId "com.bluise.iptv.new"
         minSdk 24
-        targetSdk 35
+        targetSdk 36 // 🔥 Updated to latest API 36
         versionCode 2
         versionName "2.0"
         resConfigs "en"
 
-        //  THE MAGIC DIET PILL: x86 aur x86_64 ko nikal diya (Saves 10-15 MB)
+        // THE MAGIC DIET PILL: x86 aur x86_64 ko nikal diya (Saves 10-15 MB)
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a'
         }
@@ -37,9 +37,8 @@ android {
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-        // ðŸ”¥ Ye naya debug block add karna hai
         debug {
-            debuggable false   // debuggable APK slow chalta hai (zyada CPU/heat). CI assembleDebug hi banata hai, isliye yahan off
+            debuggable false
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
@@ -56,7 +55,7 @@ android {
 }
 
 dependencies {
-    // Core UI
+    // Core UI (Already Latest Stable)
     implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.github.bumptech.glide:glide:4.16.0'
@@ -64,21 +63,19 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
 
     // =========================
-    // MEDIA3 1.9.1 (ALL SAME VERSION)
+    // 🔥 MEDIA3 (UPDATED TO LATEST 1.11.1) 🔥
     // =========================
-    implementation 'androidx.media3:media3-exoplayer:1.9.1'
-    implementation 'com.squareup.okhttp3:okhttp-dnsoverhttps:5.0.0-alpha.11'
-    implementation 'androidx.media3:media3-ui:1.9.1'
-    implementation 'androidx.media3:media3-exoplayer-hls:1.9.1'
-    implementation 'androidx.media3:media3-exoplayer-dash:1.9.1'
-    implementation 'androidx.media3:media3-datasource:1.9.1'
-    implementation 'androidx.media3:media3-datasource-okhttp:1.9.1'
+    def media3_version = "1.11.1"
+    implementation "androidx.media3:media3-exoplayer:$media3_version"
+    implementation "androidx.media3:media3-ui:$media3_version"
+    implementation "androidx.media3:media3-exoplayer-hls:$media3_version"
+    implementation "androidx.media3:media3-exoplayer-dash:$media3_version"
+    implementation "androidx.media3:media3-datasource:$media3_version"
+    implementation "androidx.media3:media3-datasource-okhttp:$media3_version"
 
-    // OkHttp
-    implementation 'com.squareup.okhttp3:okhttp:5.0.0-alpha.11'
- //  implementation 'io.github.anilbeesetti:nextlib-media3ext:1.9.1-0.11.0'
-    
-    //  Cronet Engine (For UDP/HTTP3 Magic)
- //  implementation 'androidx.media3:media3-datasource-cronet:1.9.1'
- //  implementation 'com.google.android.gms:play-services-cronet:18.0.1'
+    // =========================
+    // 🔥 OKHTTP (UPDATED TO LATEST STABLE 5.5.1) 🔥
+    // =========================
+    implementation 'com.squareup.okhttp3:okhttp:5.5.1'
+    implementation 'com.squareup.okhttp3:okhttp-dnsoverhttps:5.5.1'
 }
