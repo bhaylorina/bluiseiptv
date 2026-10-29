@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace 'com.bluise.iptv'
-    compileSdk 36
+    compileSdk 37
 
     defaultConfig {
         applicationId "com.bluise.iptv.new"
         minSdk 24
-        targetSdk 36
+        targetSdk 37
         versionCode 2
         versionName "2.0"
         resConfigs "en"
