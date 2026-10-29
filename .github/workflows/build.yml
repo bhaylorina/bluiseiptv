@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # 🔥 Iski wajah se 'Run workflow' ka manual button aayega
+  workflow_dispatch:
 
 jobs:
   build:
@@ -20,12 +20,18 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
 
-    # 🔥 AAPKA LOGIC: Install API 37 SDK on GitHub Runner 🔥
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+    - name: Set ANDROID_HOME
+      run: echo "ANDROID_HOME=$HOME/Android/Sdk" >> $GITHUB_ENV
 
-    - name: Install Android SDK Platform 37
-      run: sdkmanager "platforms;android-37"
+    - name: Accept ALL SDK Licenses (force yes)
+      run: |
+        yes | sdkmanager --licenses --sdk_root=${{ env.ANDROID_HOME }} > /dev/null || true
+        yes | sdkmanager --licenses --sdk_root=${{ env.ANDROID_HOME }} || true
+
+    - name: Install Android SDK Platform 37 (Canary Channel)
+      run: |
+        sdkmanager --sdk_root=${{ env.ANDROID_HOME }} --channel=3 "platforms;android-37"
+        sdkmanager --sdk_root=${{ env.ANDROID_HOME }} --channel=3 "build-tools;37.0.0"
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
