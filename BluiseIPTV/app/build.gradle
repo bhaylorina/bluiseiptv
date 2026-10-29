@@ -5,19 +5,16 @@ plugins {
 
 android {
     namespace 'com.bluise.iptv'
-    // 🔥 Shifted to API 37 for OkHttp 5.5.1 support
-    compileSdk 36 
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.bluise.iptv.new"
         minSdk 24
-        // 🔥 Shifted to API 37
-        targetSdk 36 
+        targetSdk 36
         versionCode 2
         versionName "2.0"
         resConfigs "en"
 
-        // THE MAGIC DIET PILL: x86 aur x86_64 ko nikal diya (Saves 10-15 MB)
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a'
         }
@@ -26,9 +23,9 @@ android {
     signingConfigs {
         release {
             storeFile file("my-release-key.jks")
-            storePassword "123456" 
+            storePassword "123456"
             keyAlias "my-alias"
-            keyPassword "123456" 
+            keyPassword "123456"
         }
     }
 
@@ -57,16 +54,12 @@ android {
 }
 
 dependencies {
-    // Core UI 
     implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.github.bumptech.glide:glide:4.16.0'
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
 
-    // =========================
-    // 🔥 MEDIA3 (UPDATED TO LATEST 1.11.1) 🔥
-    // =========================
     def media3_version = "1.11.1"
     implementation "androidx.media3:media3-exoplayer:$media3_version"
     implementation "androidx.media3:media3-ui:$media3_version"
@@ -75,9 +68,6 @@ dependencies {
     implementation "androidx.media3:media3-datasource:$media3_version"
     implementation "androidx.media3:media3-datasource-okhttp:$media3_version"
 
-    // =========================
-    // 🔥 OKHTTP (LATEST 5.5.1 VAPAS LAGA DIYA) 🔥
-    // =========================
     implementation 'com.squareup.okhttp3:okhttp:5.5.1'
     implementation 'com.squareup.okhttp3:okhttp-dnsoverhttps:5.5.1'
 }
