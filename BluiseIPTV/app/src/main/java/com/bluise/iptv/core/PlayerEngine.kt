@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.drm.*
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences
 import okhttp3.*
 import okhttp3.ConnectionPool
@@ -35,18 +36,18 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 
-// 🔥 NEW IMPORTS FOR SPEED OPTIMIZATION
+// ðŸ”¥ NEW IMPORTS FOR SPEED OPTIMIZATION
 import javax.net.SocketFactory
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 
 // ============================================================
-// 🔥 AV SYNC FIX — Android TV internal speaker DSP delay compensation
+// ðŸ”¥ AV SYNC FIX â€” Android TV internal speaker DSP delay compensation
 // ============================================================
 // Shifts every decoded video frame's presentation timestamp forward by a
 // fixed amount so it waits for audio that the TV's internal speaker DSP is
-// delaying. Hardware decoding (MediaCodec) is untouched — only display
+// delaying. Hardware decoding (MediaCodec) is untouched â€” only display
 // timing is shifted. Safe for battery/CPU.
 //
 // Change AV_SYNC_OFFSET_MS in PlayerEngine companion object and rebuild.
@@ -69,7 +70,8 @@ private class SyncAdjustedVideoRenderer(
     enableDecoderFallback,
     eventHandler,
     eventListener,
-    maxDroppedFramesToNotify
+    maxDroppedFramesToNotify,
+    32.0f // ðŸ”¥ FIX: Media3 1.11.1 requires assumed fallback frame rate. 32.0f is default.
 ) {
     override fun processOutputBuffer(
         positionUs: Long,
@@ -119,7 +121,7 @@ private class SyncRenderersFactory(
             SyncAdjustedVideoRenderer(
                 context,
                 mediaCodecSelector,
-                allowedVideoJoiningTimeMs,
+                allowedVideoJoiningTimeMs, // ðŸ”¥ FIX: Using the passed allowed video joining time
                 enableDecoderFallback,
                 eventHandler,
                 eventListener,
@@ -127,7 +129,7 @@ private class SyncRenderersFactory(
                 avSyncOffsetUs
             )
         )
-        // NOTE: super.buildVideoRenderers() intentionally NOT called —
+        // NOTE: super.buildVideoRenderers() intentionally NOT called â€”
         // otherwise it would add a duplicate video renderer.
     }
 }
@@ -141,7 +143,7 @@ class PlayerEngine {
         const val IS_SPECIAL_EDITION = true
 
         // ============================================================
-        // 🔥 AV SYNC OFFSET — EDIT THIS VALUE AND REBUILD TO FIX LIP SYNC
+        // ðŸ”¥ AV SYNC OFFSET â€” EDIT THIS VALUE AND REBUILD TO FIX LIP SYNC
         // ============================================================
         // Positive = delays video (use this if lips move before sound)
         // Negative = shows video earlier (use if sound comes before lips)
@@ -235,11 +237,7 @@ class PlayerEngine {
         }
 
         // ============================================================
-        // 🔥 NEW: Tuned Socket Factory — OS level TCP buffer size increase
-        // ============================================================
-        // Default OS socket receive buffer ~64KB hota hai. Ise 256KB karne se
-        // bade video segment chunks ek saath zyada fast receive ho sakte hain
-        // (especially high bitrate streams par). CPU/battery par koi asar nahi.
+        // ðŸ”¥ NEW: Tuned Socket Factory â€” OS level TCP buffer size increase
         // ============================================================
         private val tunedSocketFactory = object : SocketFactory() {
             override fun createSocket(): Socket = Socket().apply {
@@ -257,15 +255,11 @@ class PlayerEngine {
                 createSocket().apply { connect(InetSocketAddress(address, port)) }
         }
 
-        // 🔥 MOD: HTTP/2 PREFERRED, HTTP/1.1 as automatic fallback.
-        // OkHttp negotiates via ALPN — tries HTTP/2 first (gives multiplexing
-        // benefit for DASH streams on CDNs like CloudFront), and silently
-        // falls back to HTTP/1.1 only if the server doesn't support HTTP/2
-        // (e.g. some MAC-based/.php IPTV panels). No channel breaks either way.
+        // ðŸ”¥ MOD: HTTP/2 PREFERRED, HTTP/1.1 as automatic fallback.
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
             //.dns(smartDns)
-            .socketFactory(tunedSocketFactory) // 🔥 NEW: bigger OS-level TCP buffers
+            .socketFactory(tunedSocketFactory) // ðŸ”¥ NEW: bigger OS-level TCP buffers
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
@@ -285,11 +279,7 @@ class PlayerEngine {
             .build()
 
         // ============================================================
-        // 🔥 NEW: Fast Load Error/Retry Policy
-        // ============================================================
-        // Default ExoPlayer retry backoff kaafi slow hota hai (seconds mein).
-        // Network blip/segment-fail hone par jaldi retry karne se effective
-        // throughput/perceived speed better hoti hai, rebuffering kam hoti hai.
+        // ðŸ”¥ NEW: Fast Load Error/Retry Policy
         // ============================================================
         private val fastLoadErrorHandlingPolicy = object : DefaultLoadErrorHandlingPolicy() {
             override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
@@ -329,15 +319,15 @@ class PlayerEngine {
         fun createPlayer(context: Context): ExoPlayer {
             updateProxyState(context)
 
-            // 🔥 MOD: Using SyncRenderersFactory for AV sync offset correction.
-            // Still 100% hardware decoding — only display timing is shifted.
+            // ðŸ”¥ MOD: Using SyncRenderersFactory for AV sync offset correction.
             val renderersFactory = SyncRenderersFactory(context, AV_SYNC_OFFSET_MS * 1000)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                 .setEnableDecoderFallback(true)
 
-            // 🔥 Tunneling kept TRUE as requested
+                        // ðŸ”¥ Tunneling kept TRUE as requested
+            // ðŸ”¥ FIX: Changed to DefaultTrackSelector.Parameters.Builder to fix setTunnelingEnabled error
             val trackSelector = DefaultTrackSelector(context).apply {
-                parameters = buildUponParameters()
+                parameters = DefaultTrackSelector.Parameters.Builder(context)
                     .setTunnelingEnabled(true) 
                     .setExceedAudioConstraintsIfNecessary(true)
                     .setExceedVideoConstraintsIfNecessary(true)
@@ -353,21 +343,15 @@ class PlayerEngine {
                     .build()
             }
 
-            // 🔥 MOD: Increased playback-start and rebuffer margins so small
-            // network dips during congestion don't immediately cause a stall.
-            // (500ms/3000ms was too thin — gave zero recovery headroom.)
-            // 🔥 NEW: setTargetBufferBytes(LENGTH_UNSET) — removes internal
-            // memory-based buffer cap so high-bitrate streams don't get
-            // throttled/paused early due to byte-size limit calculations.
+            // ðŸ”¥ MOD: Increased playback-start and rebuffer margins
             val loadControl = DefaultLoadControl.Builder()
                 .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-                .setBufferDurationsMs(20_000, 40_000, 500, 5_000)   // maxBuffer 50s -> 40s, taaki targetOffset se match ho aur live-window (61s) ke andar safely fit ho
+                .setBufferDurationsMs(20_000, 40_000, 500, 5_000)
                 .setPrioritizeTimeOverSizeThresholds(true)
-                .setTargetBufferBytes(C.LENGTH_UNSET) // 🔥 NEW
+                .setTargetBufferBytes(C.LENGTH_UNSET) // ðŸ”¥ NEW
                 .build()
 
-            // 🔥 NEW: Bandwidth meter — faster adaptation to available bandwidth
-            // (smaller sliding window weight = quicker reaction to speed changes)
+            // ðŸ”¥ NEW: Bandwidth meter â€” faster adaptation to available bandwidth
             val bandwidthMeter = DefaultBandwidthMeter.Builder(context)
                 .setResetOnNetworkTypeChange(true)
                 .build()
@@ -376,7 +360,7 @@ class PlayerEngine {
                 .setRenderersFactory(renderersFactory)
                 .setTrackSelector(trackSelector)
                 .setLoadControl(loadControl)
-                .setBandwidthMeter(bandwidthMeter) // 🔥 NEW
+                .setBandwidthMeter(bandwidthMeter) // ðŸ”¥ NEW
                 .build()
                 .apply {
                     setAudioAttributes(
@@ -434,7 +418,6 @@ class PlayerEngine {
             val lower = url.lowercase()
             return when {
                 lower.contains(".mpd") || lower.contains("=mpd")  -> MimeTypes.APPLICATION_MPD
-                // 🔥 MOD: Removed 'vercel.app' hack
                 lower.contains(".m3u8") || lower.contains("=m3u8") -> MimeTypes.APPLICATION_M3U8
                 lower.endsWith(".ts")  || lower.contains(".ts?") || lower.contains("=ts")  -> null
                 else -> null
@@ -521,7 +504,7 @@ class PlayerEngine {
         ) {
             if (version != resolverVersion) return
 
-            // 🔥 Kept your original 302 Redirect Interceptor - it is necessary!
+            // ðŸ”¥ Kept your original 302 Redirect Interceptor - it is necessary!
             val channelClient = okHttpClient.newBuilder()
                 .addNetworkInterceptor { chain ->
                     val original = chain.request()
@@ -573,52 +556,54 @@ class PlayerEngine {
             val hasLicense = licenseUrl.isNotEmpty()
             val hasLocalKeys = clearkeys.isNotEmpty()
 
-            when {
-                hasLicense && licenseUrl.startsWith("{") && licenseUrl.contains("\"keys\"") -> {
-                    val cb = LocalClearKeyCallback(emptyMap(), licenseUrl)
-                    drmSessionManager = DefaultDrmSessionManager.Builder()
-                        .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                        .setMultiSession(true).build(cb)
-                    drmConfigUuid = C.CLEARKEY_UUID
-                }
+            try { // ðŸ”¥ FIX: Added try-catch around DRM builder to prevent IllegalStateException
+                when {
+                    hasLicense && licenseUrl.startsWith("{") && licenseUrl.contains("\"keys\"") -> {
+                        val cb = LocalClearKeyCallback(emptyMap(), licenseUrl)
+                        drmSessionManager = DefaultDrmSessionManager.Builder()
+                            .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                            .setMultiSession(true).build(cb)
+                        drmConfigUuid = C.CLEARKEY_UUID
+                    }
 
-                hasLocalKeys -> {
-                    val cb = LocalClearKeyCallback(clearkeys, null)
-                    drmSessionManager = DefaultDrmSessionManager.Builder()
-                        .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                        .setMultiSession(true).build(cb)
-                    drmConfigUuid = C.CLEARKEY_UUID
-                }
+                    hasLocalKeys -> {
+                        val cb = LocalClearKeyCallback(clearkeys, null)
+                        drmSessionManager = DefaultDrmSessionManager.Builder()
+                            .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                            .setMultiSession(true).build(cb)
+                        drmConfigUuid = C.CLEARKEY_UUID
+                    }
 
-                hasLicense && (drmScheme == "clearkey" || isClearKeyUrl(licenseUrl)) -> {
-                    val cb = HttpClearKeyUrlCallback(licenseUrl, okHttpClient, headers)
-                    drmSessionManager = DefaultDrmSessionManager.Builder()
-                        .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                        .setMultiSession(true).build(cb)
-                    drmConfigUuid = C.CLEARKEY_UUID
-                }
+                    hasLicense && (drmScheme == "clearkey" || isClearKeyUrl(licenseUrl)) -> {
+                        val cb = HttpClearKeyUrlCallback(licenseUrl, okHttpClient, headers)
+                        drmSessionManager = DefaultDrmSessionManager.Builder()
+                            .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                            .setMultiSession(true).build(cb)
+                        drmConfigUuid = C.CLEARKEY_UUID
+                    }
 
-                hasLicense && drmScheme == "widevine" -> {
-                    val cb = HttpMediaDrmCallback(licenseUrl, httpFactory)
-                    headers.forEach { (k, v) -> cb.setKeyRequestProperty(k, v) }
-                    drmSessionManager = DefaultDrmSessionManager.Builder()
-                        .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                        .setMultiSession(true).build(cb)
-                    drmConfigUuid = C.WIDEVINE_UUID
-                }
+                    hasLicense && drmScheme == "widevine" -> {
+                        val cb = HttpMediaDrmCallback(licenseUrl, httpFactory)
+                        headers.forEach { (k, v) -> cb.setKeyRequestProperty(k, v) }
+                        drmSessionManager = DefaultDrmSessionManager.Builder()
+                            .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                            .setMultiSession(true).build(cb)
+                        drmConfigUuid = C.WIDEVINE_UUID
+                    }
 
-                hasLicense -> {
-                    val cb = HttpClearKeyUrlCallback(licenseUrl, okHttpClient, headers)
-                    drmSessionManager = DefaultDrmSessionManager.Builder()
-                        .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                        .setMultiSession(true).build(cb)
-                    drmConfigUuid = C.CLEARKEY_UUID
+                    hasLicense -> {
+                        val cb = HttpClearKeyUrlCallback(licenseUrl, okHttpClient, headers)
+                        drmSessionManager = DefaultDrmSessionManager.Builder()
+                            .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                            .setMultiSession(true).build(cb)
+                        drmConfigUuid = C.CLEARKEY_UUID
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "DRM Configuration failed: ${e.message}")
             }
 
-            // 🔥 MOD: Adaptive live speed re-enabled with small elastic range
-            // so the player can micro-adjust speed (±4%) to absorb small
-            // network slowdowns instead of hard-stalling immediately.
+            // ðŸ”¥ MOD: Adaptive live speed re-enabled with small elastic range
             val liveConfig = MediaItem.LiveConfiguration.Builder()
                 .setTargetOffsetMs(45_000)
                 .setMinPlaybackSpeed(0.96f)
@@ -629,7 +614,7 @@ class PlayerEngine {
             forcedMimeType?.let { mediaItemBuilder.setMimeType(it) }
             drmConfigUuid?.let { mediaItemBuilder.setDrmConfiguration(MediaItem.DrmConfiguration.Builder(it).build()) }
 
-            // 🔥 NEW: Fast load error handling policy attached here
+            // ðŸ”¥ NEW: Fast load error handling policy attached here
             val mediaSourceFactory = DefaultMediaSourceFactory(context)
                 .setDataSourceFactory(httpFactory)
                 .setLoadErrorHandlingPolicy(fastLoadErrorHandlingPolicy)
@@ -708,25 +693,33 @@ class PlayerEngine {
         override fun executeKeyRequest(uuid: UUID, request: ExoMediaDrm.KeyRequest): MediaDrmCallback.Response {
             val requestData = request.data
             val body = requestData.toRequestBody("application/json".toMediaType())
-            val host = licenseUrl.toHttpUrl().host
+            
+            // ðŸ”¥ FIX: Check if licenseUrl is a valid HTTP URL before parsing host
+            val host = try {
+                licenseUrl.toHttpUrl().host
+            } catch (e: Exception) {
+                "" // Fallback if URL is invalid (prevents IllegalArgumentException crash)
+            }
 
-            // NOTE: ClearKey license POST kept on HTTP/1.1 deliberately —
+            // NOTE: ClearKey license POST kept on HTTP/1.1 deliberately â€”
             // some license servers don't handle HTTP/2 POST bodies reliably.
             val http1Client = client.newBuilder().protocols(listOf(Protocol.HTTP_1_1)).build()
 
-            // 🔥 MOD: Dynamically fetching correct User-Agent
+            // ðŸ”¥ MOD: Dynamically fetching correct User-Agent
             val userAgent = headers["User-Agent"] ?: PlayerEngine.DEFAULT_UA
 
-            val req = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url(licenseUrl)
                 .post(body)
-                .header("Host", host)
                 .header("Content-Type", "application/json")
                 .header("Connection", "keep-alive")
                 .header("User-Agent", userAgent)
-                .build()
+                
+            if (host.isNotEmpty()) {
+                reqBuilder.header("Host", host)
+            }
 
-            http1Client.newCall(req).execute().use { response ->
+            http1Client.newCall(reqBuilder.build()).execute().use { response ->
                 val responseBytes = response.body?.bytes() ?: ByteArray(0)
                 if (!response.isSuccessful) throw IOException("ClearKey POST failed: ${response.code}")
                 return MediaDrmCallback.Response(responseBytes)
