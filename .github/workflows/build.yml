@@ -3,16 +3,11 @@ name: Build Android APK
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # 🔥 Manual button idhar hi hai
+  workflow_dispatch: # 🔥 Iski wajah se 'Run workflow' ka manual button aayega
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    # 🔥 Isse GitHub ko pata chalega ki code BluiseIPTV folder me hai
-    defaults:
-      run:
-        working-directory: ./BluiseIPTV 
 
     steps:
     - name: Checkout Repository
@@ -25,6 +20,13 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
 
+    # 🔥 AAPKA LOGIC: Install API 37 SDK on GitHub Runner 🔥
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install Android SDK Platform 37
+      run: sdkmanager "platforms;android-37"
+
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
@@ -35,5 +37,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: bluise-iptv-debug-apk
-        path: BluiseIPTV/app/build/outputs/apk/debug/app-debug.apk
-        
+        path: app/build/outputs/apk/debug/app-debug.apk
