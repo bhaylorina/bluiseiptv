@@ -354,94 +354,102 @@ class PlayerEngine {
                 .setDefaultRequestProperties(headers)
 
             var drmSessionManager: DefaultDrmSessionManager? = null
-            var drmConfigUuid: UUID? = null
+var drmConfigUuid: UUID? = null
 
-            val licenseUrl = channel.drmLicenseUrl?.trim() ?: ""
-            val drmScheme  = channel.drmScheme?.trim()?.lowercase() ?: ""
+val licenseUrl = channel.drmLicenseUrl?.trim() ?: ""
+val drmScheme  = channel.drmScheme?.trim()?.lowercase() ?: ""
 
-            val clearkeys = mutableMapOf<String, String>()
-            val hexRegex = Regex("^[0-9a-fA-F]+$")
+val clearkeys = mutableMapOf<String, String>()
 
-            fun extractPairs(input: String?) {
-                if (input.isNullOrBlank() || input.startsWith("http") || input.startsWith("{")) return
-                val items = input.split(",")
-                for (item in items) {
-                    val delimIdx = item.indexOfFirst { it == ':' || it == '=' }
-                    if (delimIdx != -1) {
-                        val kId = item.substring(0, delimIdx).replace("-", "").trim()
-                        val kVal = item.substring(delimIdx + 1).trim()
-                        if (kId.length == 32 && kVal.length == 32 && hexRegex.matches(kId) && hexRegex.matches(kVal)) {
-                            clearkeys[kId] = kVal
-                        }
-                    }
-                }
+// Accepts BOTH pure hex (32 chars) and base64/base64url key tokens —
+// your parser emits base64 tokens when pre-parsing inline JWK JSON,
+// while manually-entered kid:key pairs are typically hex.
+val hexRegex = Regex("^[0-9a-fA-F]{32}$")
+val base64Regex = Regex("^[A-Za-z0-9_-]{16,}={0,2}$")
+
+fun isValidKeyToken(s: String): Boolean =
+    hexRegex.matches(s) || base64Regex.matches(s)
+
+fun extractPairs(input: String?) {
+    if (input.isNullOrBlank() || input.startsWith("http") || input.startsWith("{")) return
+    val items = input.split(",")
+    for (item in items) {
+        val delimIdx = item.indexOfFirst { it == ':' || it == '=' }
+        if (delimIdx != -1) {
+            val kId = item.substring(0, delimIdx).replace("-", "").trim()
+            val kVal = item.substring(delimIdx + 1).trim()
+            if (isValidKeyToken(kId) && isValidKeyToken(kVal)) {
+                clearkeys[kId] = kVal
             }
+        }
+    }
+}
 
-            extractPairs(channel.drmKey)
-            extractPairs(channel.drmLicenseUrl)
+extractPairs(channel.drmKey)
+extractPairs(channel.drmLicenseUrl)
 
-            if (!channel.drmKeyId.isNullOrBlank() && !channel.drmKey.isNullOrBlank()) {
-                val kId = channel.drmKeyId.replace("-", "").trim()
-                val kVal = channel.drmKey.trim()
-                if (kId.length == 32 && kVal.length == 32 && hexRegex.matches(kId) && hexRegex.matches(kVal) && !kVal.contains(":")) {
-                    clearkeys[kId] = kVal
-                }
-            }
+if (!channel.drmKeyId.isNullOrBlank() && !channel.drmKey.isNullOrBlank()) {
+    val kId = channel.drmKeyId.replace("-", "").trim()
+    val kVal = channel.drmKey.trim()
+    if (isValidKeyToken(kId) && isValidKeyToken(kVal) && !kVal.contains(":")) {
+        clearkeys[kId] = kVal
+    }
+}
 
-            val hasLicense = licenseUrl.isNotEmpty()
-            val hasLocalKeys = clearkeys.isNotEmpty()
+val hasLicense = licenseUrl.isNotEmpty()
+val hasLocalKeys = clearkeys.isNotEmpty()
 
-            try {
-                when {
-                    hasLicense && licenseUrl.startsWith("{") && licenseUrl.contains("\"keys\"") -> {
-                        val cb = LocalClearKeyCallback(emptyMap(), licenseUrl)
-                        drmSessionManager = DefaultDrmSessionManager.Builder()
-                            .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                            .setMultiSession(true).build(cb)
-                        drmConfigUuid = C.CLEARKEY_UUID
-                    }
+try {
+    when {
+        hasLicense && licenseUrl.startsWith("{") && licenseUrl.contains("\"keys\"") -> {
+            val cb = LocalClearKeyCallback(emptyMap(), licenseUrl)
+            drmSessionManager = DefaultDrmSessionManager.Builder()
+                .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                .setMultiSession(true).build(cb)
+            drmConfigUuid = C.CLEARKEY_UUID
+        }
 
-                    hasLocalKeys -> {
-                        val cb = LocalClearKeyCallback(clearkeys, null)
-                        drmSessionManager = DefaultDrmSessionManager.Builder()
-                            .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                            .setMultiSession(true).build(cb)
-                        drmConfigUuid = C.CLEARKEY_UUID
-                    }
+        hasLocalKeys -> {
+            val cb = LocalClearKeyCallback(clearkeys, null)
+            drmSessionManager = DefaultDrmSessionManager.Builder()
+                .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                .setMultiSession(true).build(cb)
+            drmConfigUuid = C.CLEARKEY_UUID
+        }
 
-                    hasLicense && (drmScheme == "clearkey" || isClearKeyUrl(licenseUrl)) -> {
-                        val cb = HttpClearKeyUrlCallback(licenseUrl, okHttpClient, headers)
-                        drmSessionManager = DefaultDrmSessionManager.Builder()
-                            .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                            .setMultiSession(true).build(cb)
-                        drmConfigUuid = C.CLEARKEY_UUID
-                    }
+        hasLicense && (drmScheme == "clearkey" || isClearKeyUrl(licenseUrl)) -> {
+            val cb = HttpClearKeyUrlCallback(licenseUrl, okHttpClient, headers)
+            drmSessionManager = DefaultDrmSessionManager.Builder()
+                .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                .setMultiSession(true).build(cb)
+            drmConfigUuid = C.CLEARKEY_UUID
+        }
 
-                    hasLicense && drmScheme == "widevine" -> {
-                        val cb = HttpMediaDrmCallback(licenseUrl, httpFactory)
-                        headers.forEach { (k, v) -> cb.setKeyRequestProperty(k, v) }
-                        drmSessionManager = DefaultDrmSessionManager.Builder()
-                            .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                            .setMultiSession(true).build(cb)
-                        drmConfigUuid = C.WIDEVINE_UUID
-                    }
+        hasLicense && drmScheme == "widevine" -> {
+            val cb = HttpMediaDrmCallback(licenseUrl, httpFactory)
+            headers.forEach { (k, v) -> cb.setKeyRequestProperty(k, v) }
+            drmSessionManager = DefaultDrmSessionManager.Builder()
+                .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                .setMultiSession(true).build(cb)
+            drmConfigUuid = C.WIDEVINE_UUID
+        }
 
-                    hasLicense && drmScheme.isBlank() -> {
-                        Log.w(TAG, "DRM scheme not specified for $licenseUrl — defaulting to ClearKey")
-                        val cb = HttpClearKeyUrlCallback(licenseUrl, okHttpClient, headers)
-                        drmSessionManager = DefaultDrmSessionManager.Builder()
-                            .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                            .setMultiSession(true).build(cb)
-                        drmConfigUuid = C.CLEARKEY_UUID
-                    }
+        hasLicense && drmScheme.isBlank() -> {
+            Log.w(TAG, "DRM scheme not specified for $licenseUrl — defaulting to ClearKey")
+            val cb = HttpClearKeyUrlCallback(licenseUrl, okHttpClient, headers)
+            drmSessionManager = DefaultDrmSessionManager.Builder()
+                .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                .setMultiSession(true).build(cb)
+            drmConfigUuid = C.CLEARKEY_UUID
+        }
 
-                    hasLicense -> {
-                        Log.e(TAG, "Unsupported DRM scheme '$drmScheme' for $licenseUrl — skipping DRM setup")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "DRM Configuration failed: ${e.message}", e)
-            }
+        hasLicense -> {
+            Log.e(TAG, "Unsupported DRM scheme '$drmScheme' for $licenseUrl — skipping DRM setup")
+        }
+    }
+} catch (e: Exception) {
+    Log.e(TAG, "DRM Configuration failed: ${e.message}", e)
+}
 
             val liveConfig = MediaItem.LiveConfiguration.Builder()
                 .setTargetOffsetMs(30_000)
