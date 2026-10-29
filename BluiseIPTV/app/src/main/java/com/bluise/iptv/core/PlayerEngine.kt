@@ -324,10 +324,10 @@ class PlayerEngine {
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                 .setEnableDecoderFallback(true)
 
-            // 🔥 Tunneling kept TRUE as requested
-            // 🔥 FIX: Updated DefaultTrackSelector parameters to modern Media3 API
+                        // 🔥 Tunneling kept TRUE as requested
+            // 🔥 FIX: Changed to DefaultTrackSelector.Parameters.Builder to fix setTunnelingEnabled error
             val trackSelector = DefaultTrackSelector(context).apply {
-                parameters = TrackSelectionParameters.Builder(context)
+                parameters = DefaultTrackSelector.Parameters.Builder(context)
                     .setTunnelingEnabled(true) 
                     .setExceedAudioConstraintsIfNecessary(true)
                     .setExceedVideoConstraintsIfNecessary(true)
