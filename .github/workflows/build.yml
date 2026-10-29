@@ -20,7 +20,6 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
 
-    # Android SDK tools path
     - name: Setup Android SDK Tools
       run: |
         echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
@@ -31,11 +30,11 @@ jobs:
 
         "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
 
-    # Install Android 17 / API 37 Preview & Fix Metadata for Gradle
-    - name: Install Android SDK 37 Preview
+    - name: Install Android SDK 37
       run: |
         SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
+        echo "Accepting Android SDK licenses..."
         yes | "$SDKMANAGER" --licenses || true
 
         echo "Searching Android 37 packages..."
@@ -44,16 +43,25 @@ jobs:
         echo "Installing Android 37.0..."
         "$SDKMANAGER" --channel=3 "platforms;android-37.0"
 
-        # 🔥 THE FINAL FIX: Renaming folder AND updating internal metadata
-        echo "Aligning folder name and internal metadata for Gradle compatibility..."
-        mv "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
-        
-        # Fixing the internal IDs so Gradle doesn't complain about inconsistent location
-        sed -i 's/android-37\.0/android-37/g' "$ANDROID_HOME/platforms/android-37/source.properties" || true
-        sed -i 's/android-37\.0/android-37/g' "$ANDROID_HOME/platforms/android-37/package.xml" || true
+        echo "Aligning Android 37 folder and metadata..."
+
+        mv "$ANDROID_HOME/platforms/android-37.0" \
+           "$ANDROID_HOME/platforms/android-37"
+
+        sed -i 's/android-37\.0/android-37/g' \
+          "$ANDROID_HOME/platforms/android-37/source.properties" || true
+
+        sed -i 's/android-37\.0/android-37/g' \
+          "$ANDROID_HOME/platforms/android-37/package.xml" || true
 
         echo "Installed Android platforms:"
         ls -la "$ANDROID_HOME/platforms"
+
+        echo "Android 37 folder:"
+        ls -ld "$ANDROID_HOME/platforms/android-37"
+
+        echo "Checking android.jar:"
+        test -f "$ANDROID_HOME/platforms/android-37/android.jar"
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
@@ -63,7 +71,6 @@ jobs:
       run: ./gradlew assembleDebug
       working-directory: BluiseIPTV
       env:
-        # 🔥 Telling Gradle exactly where the SDK is located
         ANDROID_HOME: /usr/local/lib/android/sdk
         ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
