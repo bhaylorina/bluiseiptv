@@ -41,8 +41,12 @@ jobs:
         echo "Searching Android 37 packages..."
         "$SDKMANAGER" --list --channel=3 | grep -E "android-37|build-tools;37" || true
 
-        echo "Installing Android 37..."
+        echo "Installing Android 37.0..."
         "$SDKMANAGER" --channel=3 "platforms;android-37.0"
+
+        # 🔥 THE FINAL FIX: Renaming android-37.0 to android-37 so Gradle finds it perfectly
+        echo "Aligning folder name for Gradle compatibility..."
+        mv "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
 
         echo "Installed Android platforms:"
         ls -la "$ANDROID_HOME/platforms"
@@ -54,6 +58,10 @@ jobs:
     - name: Build Debug APK
       run: ./gradlew assembleDebug
       working-directory: BluiseIPTV
+      env:
+        # 🔥 Telling Gradle exactly where the SDK is located
+        ANDROID_HOME: /usr/local/lib/android/sdk
+        ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
