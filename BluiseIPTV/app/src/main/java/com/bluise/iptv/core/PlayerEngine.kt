@@ -43,20 +43,15 @@ class PlayerEngine {
 
         private const val TAG = "PlayerEngine"
 
-        // 🔥 FIX (#16): valid Android version + version numbers consistent with current stack
         private const val DEFAULT_UA =
             "OTT Navigator/1.7.6 (Linux;Android 14) ExoPlayerLib/2.19.1"
-
-        @JvmStatic
-        @Volatile
-        var isProxyEnabled = false
 
         private val mainHandler = Handler(Looper.getMainLooper())
 
         private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
 
-        // 🔥 FIX (#17): bounded cookie store — stale/empty/expired host entries are now
-        // actively removed instead of silently accumulating forever.
+        // Bounded cookie store — stale/empty/expired host entries are actively removed
+        // instead of silently accumulating forever.
         private val cookieJar = object : CookieJar {
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
                 val validCookies = cookies.filter { cookie ->
@@ -142,15 +137,6 @@ class PlayerEngine {
             override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
         }
 
-        private fun updateProxyState(context: Context) {
-            val prefs    = context.getSharedPreferences("iptv_settings", Context.MODE_PRIVATE)
-            val newState = prefs.getBoolean("vps_proxy_enabled", true)
-            if (newState != isProxyEnabled) {
-                isProxyEnabled = newState
-                Log.d(TAG, "UI Proxy Switch changed to: $isProxyEnabled")
-            }
-        }
-
         private fun clearCookiesForUrl(url: String) {
             try {
                 val host = url.toHttpUrl().host
@@ -164,8 +150,8 @@ class PlayerEngine {
         private val activeResolverLock = Any()
         private var activeResolverCall: Call?  = null
 
-        // 🔥 FIX (#2 & #4): per-player tracking so old listeners/DRM sessions are released
-        // on channel switch instead of leaking.
+        // Per-player tracking so old listeners/DRM sessions are released on channel
+        // switch instead of leaking.
         private val activeListeners = ConcurrentHashMap<Int, Player.Listener>()
         private val activeDrmManagers = ConcurrentHashMap<Int, DefaultDrmSessionManager>()
 
@@ -174,10 +160,7 @@ class PlayerEngine {
         }
 
         fun createPlayer(context: Context): ExoPlayer {
-            updateProxyState(context)
 
-            // 🔥 FIX (#11): AV-sync PTS-shift hack removed entirely — it was a hardcoded
-            // single-device workaround that also risked conflicting with hardware tunneling.
             val renderersFactory = DefaultRenderersFactory(context)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                 .setEnableDecoderFallback(true)
@@ -204,8 +187,6 @@ class PlayerEngine {
                 .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
                 .setBufferDurationsMs(20_000, 40_000, 500, 5_000)
                 .setPrioritizeTimeOverSizeThresholds(true)
-                // 🔥 FIX (#9): removed no-op setTargetBufferBytes(C.LENGTH_UNSET) — it's already
-                // the default behavior when setPrioritizeTimeOverSizeThresholds(true) is set.
                 .build()
 
             val bandwidthMeter = DefaultBandwidthMeter.Builder(context)
@@ -231,7 +212,6 @@ class PlayerEngine {
         }
 
         fun playChannel(context: Context, player: ExoPlayer, channel: Channel) {
-            updateProxyState(context)
 
             synchronized(activeResolverLock) {
                 activeResolverCall?.cancel()
@@ -330,7 +310,6 @@ class PlayerEngine {
                     }
                 } catch (e: Exception) {
                     if (version != resolverVersion) return@execute
-                    // 🔥 FIX (#3): no more silent failure — log what actually went wrong
                     Log.e(TAG, "URL resolution failed for $url: ${e.message}", e)
                     mainHandler.post {
                         if (version != resolverVersion) return@post
@@ -364,17 +343,12 @@ class PlayerEngine {
         ) {
             if (version != resolverVersion) return
 
-            // 🔥 FIX (#2 & #4): release previous listener + DRM session manager tied to THIS
-            // player before starting new playback — prevents listener/DRM leaks on fast
-            // channel switching (very common in IPTV zapping).
+            // Release previous listener + DRM session manager tied to THIS player before
+            // starting new playback — prevents listener/DRM leaks on fast channel switching.
             val playerKey = System.identityHashCode(player)
             activeListeners.remove(playerKey)?.let { player.removeListener(it) }
             activeDrmManagers.remove(playerKey)?.release()
 
-            // 🔥 FIX (#5): reuse the shared okHttpClient directly. The previous per-channel
-            // client + network interceptor was re-applying headers that
-            // setDefaultRequestProperties() already sets — pure duplicate work on every
-            // segment request, rebuilt on every single channel switch.
             val httpFactory = OkHttpDataSource.Factory(okHttpClient)
                 .setUserAgent(userAgent)
                 .setDefaultRequestProperties(headers)
@@ -396,9 +370,6 @@ class PlayerEngine {
                     if (delimIdx != -1) {
                         val kId = item.substring(0, delimIdx).replace("-", "").trim()
                         val kVal = item.substring(delimIdx + 1).trim()
-                        // 🔥 FIX (#15): require a proper 16-byte hex key (32 hex chars) for
-                        // both KID and key — previously `length >= 16` accepted garbage/partial
-                        // strings as valid DRM keys.
                         if (kId.length == 32 && kVal.length == 32 && hexRegex.matches(kId) && hexRegex.matches(kVal)) {
                             clearkeys[kId] = kVal
                         }
@@ -455,9 +426,6 @@ class PlayerEngine {
                         drmConfigUuid = C.WIDEVINE_UUID
                     }
 
-                    // 🔥 FIX (#14): only silently default to ClearKey when NO scheme was given
-                    // at all (common for simple IPTV playlists). An explicitly set but
-                    // unsupported scheme no longer gets force-fit into ClearKey.
                     hasLicense && drmScheme.isBlank() -> {
                         Log.w(TAG, "DRM scheme not specified for $licenseUrl — defaulting to ClearKey")
                         val cb = HttpClearKeyUrlCallback(licenseUrl, okHttpClient, headers)
@@ -475,9 +443,6 @@ class PlayerEngine {
                 Log.e(TAG, "DRM Configuration failed: ${e.message}", e)
             }
 
-            // 🔥 FIX (#7): targetOffsetMs (was 45s) must stay below loadControl's maxBufferMs
-            // (40s) — otherwise the player targets a live cushion bigger than it's allowed
-            // to buffer, causing it to constantly fight to catch up.
             val liveConfig = MediaItem.LiveConfiguration.Builder()
                 .setTargetOffsetMs(30_000)
                 .setMinPlaybackSpeed(0.96f)
@@ -497,7 +462,6 @@ class PlayerEngine {
             var debugListener: Player.Listener? = null
             debugListener = object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
-                    // 🔥 FIX (#3): log the real error instead of swallowing it
                     Log.e(TAG, "Playback error: ${error.errorCodeName} - ${error.message}", error)
                     debugListener?.let {
                         player.removeListener(it)
@@ -523,7 +487,6 @@ class PlayerEngine {
                 player.prepare()
                 player.playWhenReady = true
             } catch (e: Exception) {
-                // 🔥 FIX (#3): log + clean up on failure instead of silently swallowing
                 Log.e(TAG, "startPlayback failed: ${e.message}", e)
                 debugListener?.let {
                     player.removeListener(it)
