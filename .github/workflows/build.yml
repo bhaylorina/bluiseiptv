@@ -20,26 +20,32 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
 
-    - name: Install Android SDK 37 Canary
+    # Android SDK tools path
+    - name: Setup Android SDK Tools
       run: |
+        echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+        echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
         echo "ANDROID_HOME=$ANDROID_HOME"
-        echo "Installing Android SDK 37..."
+        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
-        yes | sdkmanager --licenses || true
+        "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
 
-        sdkmanager --channel=3 "platforms;android-37.0"
-
-        echo "Installed SDK platforms:"
-        ls -la "$ANDROID_HOME/platforms"
-
-    - name: Create Android 37 SDK Alias
+    # Install Android 17 / API 37 Preview
+    - name: Install Android SDK 37 Preview
       run: |
-        if [ -d "$ANDROID_HOME/platforms/android-37.0" ] && [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
-          ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
-        fi
+        SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
-        echo "Android SDK 37 paths:"
-        ls -la "$ANDROID_HOME/platforms" | grep android-37
+        yes | "$SDKMANAGER" --licenses || true
+
+        echo "Searching Android 37 packages..."
+        "$SDKMANAGER" --list --channel=3 | grep -E "android-37|build-tools;37" || true
+
+        echo "Installing Android 37..."
+        "$SDKMANAGER" --channel=3 "platforms;android-37.0"
+
+        echo "Installed Android platforms:"
+        ls -la "$ANDROID_HOME/platforms"
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
