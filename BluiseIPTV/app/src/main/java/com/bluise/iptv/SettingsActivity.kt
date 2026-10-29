@@ -11,8 +11,7 @@ import android.widget.*
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import com.bluise.iptv.core.BackupHelper 
-import com.bluise.iptv.core.PlayerEngine 
+import com.bluise.iptv.core.BackupHelper
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -99,50 +98,6 @@ class SettingsActivity : AppCompatActivity() {
         layout.addView(btnSave)
 
         // ==========================================
-        // 🔥 NETWORK SETTINGS
-        // ==========================================
-        var proxySwitch: Switch? = null 
-
-        if (PlayerEngine.IS_SPECIAL_EDITION) {
-            val proxySpacer = View(this)
-            proxySpacer.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 80)
-            layout.addView(proxySpacer)
-
-            val proxyTitle = TextView(this)
-            proxyTitle.text = "Network Settings"
-            proxyTitle.textSize = 24f
-            proxyTitle.setTextColor(Color.parseColor("#00FF00"))
-            proxyTitle.gravity = Gravity.CENTER
-            layout.addView(proxyTitle)
-
-            proxySwitch = Switch(this)
-            proxySwitch.text = "Enable Smart Proxy (IPv4 Anti-Throttle)"
-            proxySwitch.textSize = 18f
-            proxySwitch.setTextColor(Color.WHITE)
-            val switchParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            switchParams.setMargins(0, 40, 0, 40)
-            proxySwitch.layoutParams = switchParams
-            layout.addView(proxySwitch)
-
-            // Load saved state
-            proxySwitch.isChecked = prefs.getBoolean("vps_proxy_enabled", true)
-
-            // Switch + Restart Logic
-            proxySwitch.setOnCheckedChangeListener { _, isChecked ->
-                prefs.edit().putBoolean("vps_proxy_enabled", isChecked).apply()
-                
-                Toast.makeText(this, "Setting Applied! Restarting...", Toast.LENGTH_LONG).show()
-
-                proxySwitch.postDelayed({
-                    val intent = packageManager.getLaunchIntentForPackage(packageName)
-                    intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(intent)
-                    Runtime.getRuntime().exit(0) 
-                }, 1200)
-            }
-        }
-
-        // ==========================================
         // 💾 SECTION: BACKUP & RESTORE
         // ==========================================
         val spacer = View(this)
@@ -190,9 +145,7 @@ class SettingsActivity : AppCompatActivity() {
         val isTvMode = (getSystemService(Context.UI_MODE_SERVICE) as android.app.UiModeManager).currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
         if (isTvMode) {
             val focusableViews = mutableListOf<View>(rbAuto, rbLow, rbHigh, btnSave, btnBackup, btnRestore)
-            
-            proxySwitch?.let { focusableViews.add(4, it) }
-            
+
             val focusListener = View.OnFocusChangeListener { v, hasFocus ->
                 v.setBackgroundColor(if (hasFocus) Color.parseColor("#444444") else 
                                      if (v == btnBackup || v == btnRestore) Color.parseColor("#2C3E50") 
