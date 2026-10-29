@@ -149,7 +149,7 @@ class PlayerEngine {
         // Negative = shows video earlier (use if sound comes before lips)
         // 0        = no correction
         // ============================================================
-        private const val AV_SYNC_OFFSET_MS = 2L
+        private const val AV_SYNC_OFFSET_MS = 500L
 
         private const val DEFAULT_UA =
             "OTT Navigator/1.7.5.2 (Linux;Android 17; 69m33k) ExoPlayerLib/2.15.1"
@@ -239,27 +239,27 @@ class PlayerEngine {
         // ============================================================
         // ðŸ”¥ NEW: Tuned Socket Factory â€” OS level TCP buffer size increase
         // ============================================================
-        //private val tunedSocketFactory = object : SocketFactory() {
-            //override fun createSocket(): Socket = Socket().apply {
-                //tcpNoDelay = true
-                //receiveBufferSize = 256 * 1024
-                //sendBufferSize = 64 * 1024
-            //}
-            //override fun createSocket(host: String?, port: Int): Socket =
-                //createSocket().apply { connect(InetSocketAddress(host, port)) }
-            //override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
-                //createSocket().apply { connect(InetSocketAddress(host, port)) }
-            //override fun createSocket(host: InetAddress?, port: Int): Socket =
-                //createSocket().apply { connect(InetSocketAddress(host, port)) }
-            //override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
-                //createSocket().apply { connect(InetSocketAddress(address, port)) }
-        //}
+        private val tunedSocketFactory = object : SocketFactory() {
+            override fun createSocket(): Socket = Socket().apply {
+                tcpNoDelay = true
+                receiveBufferSize = 512 * 1024
+                sendBufferSize = 64 * 1024
+            }
+            override fun createSocket(host: String?, port: Int): Socket =
+                createSocket().apply { connect(InetSocketAddress(host, port)) }
+            override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
+                createSocket().apply { connect(InetSocketAddress(host, port)) }
+            override fun createSocket(host: InetAddress?, port: Int): Socket =
+                createSocket().apply { connect(InetSocketAddress(host, port)) }
+            override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
+                createSocket().apply { connect(InetSocketAddress(address, port)) }
+        }
 
         // ðŸ”¥ MOD: HTTP/2 PREFERRED, HTTP/1.1 as automatic fallback.
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
             //.dns(smartDns)
-            //.socketFactory(tunedSocketFactory) // ðŸ”¥ NEW: bigger OS-level TCP buffers
+            .socketFactory(tunedSocketFactory) // ðŸ”¥ NEW: bigger OS-level TCP buffers
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS) 
@@ -346,7 +346,7 @@ class PlayerEngine {
             // ðŸ”¥ MOD: Increased playback-start and rebuffer margins
             val loadControl = DefaultLoadControl.Builder()
                 .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-                .setBufferDurationsMs(20_000, 40_000, 500, 5_000)
+                .setBufferDurationsMs(20_000, 45_000, 500, 5_000)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .setTargetBufferBytes(C.LENGTH_UNSET) // ðŸ”¥ NEW
                 .build()
