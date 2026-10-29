@@ -40,10 +40,24 @@ jobs:
     - name: Accept ALL SDK Licenses
       run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses --sdk_root=$ANDROID_SDK_ROOT || true
 
-    # 🔥 THE FIX: Added --channel=3 to unlock Beta/Canary Preview SDKs (API 37)
-    - name: Install Required SDK Packages
+    - name: Install Android 36 (Base SDK)
       run: |
-        $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --channel=3 --sdk_root=$ANDROID_SDK_ROOT "platform-tools" "platforms;android-37" "build-tools;35.0.0"
+        $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT "platform-tools" "platforms;android-36" "build-tools;35.0.0"
+
+    # 🔥 🚀 MANUAL API 37 SETUP HACK 🔥
+    - name: Setup Manual API 37 Folder
+      run: |
+        echo "Creating Manual API 37 Platform for OkHttp..."
+        mkdir -p $ANDROID_SDK_ROOT/platforms/android-37
+        
+        # Clone API 36 to API 37
+        cp -r $ANDROID_SDK_ROOT/platforms/android-36/* $ANDROID_SDK_ROOT/platforms/android-37/
+        
+        # Modify properties to trick Gradle into reading it as API 37
+        sed -i 's/AndroidVersion.ApiLevel=36/AndroidVersion.ApiLevel=37/g' $ANDROID_SDK_ROOT/platforms/android-37/source.properties
+        sed -i 's/Platform.Version=15/Platform.Version=16/g' $ANDROID_SDK_ROOT/platforms/android-37/source.properties
+        
+        echo "API 37 Setup Complete!"
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
