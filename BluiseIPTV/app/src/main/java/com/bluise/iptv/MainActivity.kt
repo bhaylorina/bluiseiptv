@@ -197,8 +197,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val settingsPrefs = getSharedPreferences("iptv_settings", Context.MODE_PRIVATE)
-        PlayerEngine.isProxyEnabled = settingsPrefs.getBoolean("vps_proxy_enabled", true)
 
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
         WindowCompat.setDecorFitsSystemWindows(window, false)
