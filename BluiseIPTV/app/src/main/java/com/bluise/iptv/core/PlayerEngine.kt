@@ -36,6 +36,8 @@ import java.net.SocketAddress
 import java.net.URI
 import java.net.InetSocketAddress
 import java.io.IOException
+import java.io.File
+import java.io.FileOutputStream
 import okhttp3.Callback
 import okhttp3.ConnectionPool
 import okhttp3.Cookie
@@ -99,8 +101,24 @@ class PlayerEngine {
             maxRequestsPerHost = 15
         }
 
+        // --- ADDED: Proxy Selector Logic ---
+        private val jioProxySelector = object : ProxySelector() {
+            private val localSocks = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", 25344))
+            
+            override fun select(uri: URI?): List<Proxy> {
+                return if (uri?.host?.lowercase()?.contains("jio.com") == true) {
+                    listOf(localSocks, Proxy.NO_PROXY)
+                } else {
+                    listOf(Proxy.NO_PROXY)
+                }
+            }
+            override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) {}
+        }
+        // -----------------------------------
+
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
+            .proxySelector(jioProxySelector) // <-- ADDED PROXY SELECTOR HERE
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -114,7 +132,36 @@ class PlayerEngine {
 
         private val loadErrorPolicy = DefaultLoadErrorHandlingPolicy(3)
 
+        // --- ADDED: Native Proxy Starter ---
+        private fun startNativeProxy(context: Context) {
+            Thread {
+                try {
+                    val confFile = File(context.filesDir, "wireproxy.conf")
+                    if (!confFile.exists()) {
+                        context.assets.open("wireproxy.conf").use { input ->
+                            FileOutputStream(confFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                    val binPath = File(context.applicationInfo.nativeLibraryDir, "libwireproxy.so")
+                    if (binPath.exists()) {
+                        ProcessBuilder(binPath.absolutePath, "-c", confFile.absolutePath).start()
+                    } else {
+                        Log.e(TAG, "libwireproxy.so not found at ${binPath.absolutePath}")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start native proxy", e)
+                }
+            }.start()
+        }
+        // -----------------------------------
+
         fun createPlayer(context: Context): ExoPlayer {
+            // --- ADDED: Start Proxy When Player Initializes ---
+            startNativeProxy(context)
+            // ------------------------------------------------
+
             val renderersFactory = DefaultRenderersFactory(context)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                 .setEnableDecoderFallback(true)
@@ -176,11 +223,9 @@ class PlayerEngine {
             val userAgent = headers["User-Agent"] ?: DEFAULT_USER_AGENT
             val knownMimeType = inferMimeType(streamUrl)
 
-            // If MIME type is already known (.m3u8 / .mpd) or it is a direct TS/MP4/Stalker MAC URL, play immediately
             if (knownMimeType != null || isDirectStreamOrMacPortal(streamUrl)) {
                 startPlayback(context, player, channel, headers, userAgent, streamUrl, knownMimeType, currentGeneration)
             } else {
-                // Extensionless URL (e.g. /play?show=... or .php): safely inspect Content-Type & first 1KB
                 probeAndPlay(context, player, channel, headers, userAgent, streamUrl, currentGeneration)
             }
         }
@@ -226,15 +271,10 @@ class PlayerEngine {
             })
         }
 
-        /**
-         * Safely detects the stream format from the HTTP Content-Type header, redirect URL,
-         * or by peeking at most 1024 bytes of the response body (never blocks on infinite TS streams).
-         */
         private fun detectUrlAndMimeFromResponse(originalUrl: String, response: Response): Pair<String, String?> {
             val finalUrl = response.request.url.toString()
             val contentType = response.header("Content-Type", "")?.lowercase().orEmpty()
 
-            // 1. Check explicit HTTP Content-Type header first
             when {
                 contentType.contains("application/dash+xml") -> return finalUrl to MimeTypes.APPLICATION_MPD
                 contentType.contains("mpegurl") || contentType.contains("m3u8") -> return finalUrl to MimeTypes.APPLICATION_M3U8
@@ -242,10 +282,8 @@ class PlayerEngine {
                     contentType.contains("application/octet-stream") -> return finalUrl to null
             }
 
-            // 2. Check if 302 redirect landed on a URL with a known extension
             inferMimeType(finalUrl)?.let { return finalUrl to it }
 
-            // 3. Safely peek up to 1024 bytes (does not consume the full stream)
             val peekedText = runCatching {
                 response.peekBody(1024).string().trim()
             }.getOrDefault("")
