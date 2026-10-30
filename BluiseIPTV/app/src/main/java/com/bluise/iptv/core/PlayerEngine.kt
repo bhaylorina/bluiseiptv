@@ -2,6 +2,8 @@ package com.bluise.iptv.core
 
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
 import androidx.annotation.OptIn
@@ -27,6 +29,8 @@ import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.ConnectionPool
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -34,10 +38,14 @@ import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import java.io.IOException
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(UnstableApi::class)
 class PlayerEngine {
@@ -49,12 +57,23 @@ class PlayerEngine {
         private const val DEFAULT_USER_AGENT =
             "ExoPlayerLib/1.11.1 (Linux; Android) AndroidXMedia3/1.11.1"
 
+        private val mainHandler = Handler(Looper.getMainLooper())
+        private val playbackGeneration = AtomicInteger(0)
+
+        @Volatile
+        private var activeProbeCall: Call? = null
+
         private val cookieStore = ConcurrentHashMap<String, CopyOnWriteArrayList<Cookie>>()
 
         private val cookieJar = object : CookieJar {
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
                 val now = System.currentTimeMillis()
-                val validCookies = cookies.filter { it.expiresAt > now }
+                val validCookies = cookies.filter { cookie ->
+                    val isValidTime = cookie.expiresAt > now
+                    val isAkamaiPoison = cookie.name.equals("hdntl", ignoreCase = true) &&
+                        cookie.value.equals("expired", ignoreCase = true)
+                    isValidTime && !isAkamaiPoison
+                }
                 if (validCookies.isNotEmpty()) {
                     val hostCookies = cookieStore.getOrPut(url.host) { CopyOnWriteArrayList() }
                     validCookies.forEach { incoming ->
@@ -89,7 +108,7 @@ class PlayerEngine {
             .cookieJar(cookieJar)
             .build()
 
-        private val loadErrorPolicy = DefaultLoadErrorHandlingPolicy(/* minimumLoadableRetryCount = */ 3)
+        private val loadErrorPolicy = DefaultLoadErrorHandlingPolicy(3)
 
         fun createPlayer(context: Context): ExoPlayer {
             val renderersFactory = DefaultRenderersFactory(context)
@@ -115,12 +134,7 @@ class PlayerEngine {
 
             val loadControl = DefaultLoadControl.Builder()
                 .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-                .setBufferDurationsMs(
-                    /* minBufferMs = */ 15_000,
-                    /* maxBufferMs = */ 45_000,
-                    /* bufferForPlaybackMs = */ 1_500,
-                    /* bufferForPlaybackAfterRebufferMs = */ 3_000
-                )
+                .setBufferDurationsMs(15_000, 45_000, 1_500, 3_000)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
 
@@ -140,22 +154,122 @@ class PlayerEngine {
                             .setUsage(C.USAGE_MEDIA)
                             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                             .build(),
-                        /* handleAudioFocus = */ true
+                        true
                     )
                     setHandleAudioBecomingNoisy(true)
                 }
         }
 
         fun playChannel(context: Context, player: ExoPlayer, channel: Channel) {
+            activeProbeCall?.cancel()
+            activeProbeCall = null
+            val currentGeneration = playbackGeneration.incrementAndGet()
+
             val streamUrl = channel.url.trim()
             if (streamUrl.isEmpty()) return
 
             val headers = buildHeaders(channel)
             val userAgent = headers["User-Agent"] ?: DEFAULT_USER_AGENT
+            val knownMimeType = inferMimeType(streamUrl)
 
-            // Shares the parent ConnectionPool and Dispatcher while ensuring custom headers
-            // (such as Cookie and Authorization) persist across cross-domain 302 redirects.
-            // Explicitly skips overriding the "Host" header so redirected domains resolve properly.
+            // If MIME type is already known (.m3u8 / .mpd) or it is a direct TS/MP4/Stalker MAC URL, play immediately
+            if (knownMimeType != null || isDirectStreamOrMacPortal(streamUrl)) {
+                startPlayback(context, player, channel, headers, userAgent, streamUrl, knownMimeType, currentGeneration)
+            } else {
+                // Extensionless URL (e.g. /play?show=... or .php): safely inspect Content-Type & first 1KB
+                probeAndPlay(context, player, channel, headers, userAgent, streamUrl, currentGeneration)
+            }
+        }
+
+        private fun probeAndPlay(
+            context: Context,
+            player: ExoPlayer,
+            channel: Channel,
+            headers: Map<String, String>,
+            userAgent: String,
+            url: String,
+            generation: Int
+        ) {
+            val requestBuilder = Request.Builder().url(url)
+            headers.forEach { (key, value) -> requestBuilder.header(key, value) }
+
+            val call = okHttpClient.newCall(requestBuilder.build())
+            activeProbeCall = call
+
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (generation != playbackGeneration.get()) return
+                    mainHandler.post {
+                        if (generation == playbackGeneration.get()) {
+                            startPlayback(context, player, channel, headers, userAgent, url, null, generation)
+                        }
+                    }
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use { res ->
+                        if (generation != playbackGeneration.get()) return
+
+                        val (resolvedUrl, resolvedMime) = detectUrlAndMimeFromResponse(url, res)
+
+                        mainHandler.post {
+                            if (generation == playbackGeneration.get()) {
+                                startPlayback(context, player, channel, headers, userAgent, resolvedUrl, resolvedMime, generation)
+                            }
+                        }
+                    }
+                }
+            })
+        }
+
+        /**
+         * Safely detects the stream format from the HTTP Content-Type header, redirect URL,
+         * or by peeking at most 1024 bytes of the response body (never blocks on infinite TS streams).
+         */
+        private fun detectUrlAndMimeFromResponse(originalUrl: String, response: Response): Pair<String, String?> {
+            val finalUrl = response.request.url.toString()
+            val contentType = response.header("Content-Type", "")?.lowercase().orEmpty()
+
+            // 1. Check explicit HTTP Content-Type header first
+            when {
+                contentType.contains("application/dash+xml") -> return finalUrl to MimeTypes.APPLICATION_MPD
+                contentType.contains("mpegurl") || contentType.contains("m3u8") -> return finalUrl to MimeTypes.APPLICATION_M3U8
+                contentType.contains("video/") || contentType.contains("audio/") ||
+                    contentType.contains("application/octet-stream") -> return finalUrl to null
+            }
+
+            // 2. Check if 302 redirect landed on a URL with a known extension
+            inferMimeType(finalUrl)?.let { return finalUrl to it }
+
+            // 3. Safely peek up to 1024 bytes (does not consume the full stream)
+            val peekedText = runCatching {
+                response.peekBody(1024).string().trim()
+            }.getOrDefault("")
+
+            return when {
+                peekedText.startsWith("#EXTM3U") -> finalUrl to MimeTypes.APPLICATION_M3U8
+                peekedText.contains("<MPD") -> finalUrl to MimeTypes.APPLICATION_MPD
+                peekedText.startsWith("http://", ignoreCase = true) ||
+                    peekedText.startsWith("https://", ignoreCase = true) -> {
+                    val targetUrl = peekedText.lineSequence().first().trim()
+                    targetUrl to inferMimeType(targetUrl)
+                }
+                else -> finalUrl to null
+            }
+        }
+
+        private fun startPlayback(
+            context: Context,
+            player: ExoPlayer,
+            channel: Channel,
+            headers: Map<String, String>,
+            userAgent: String,
+            streamUrl: String,
+            forcedMimeType: String?,
+            generation: Int
+        ) {
+            if (generation != playbackGeneration.get()) return
+
             val channelClient = okHttpClient.newBuilder()
                 .addNetworkInterceptor { chain ->
                     val original = chain.request()
@@ -197,7 +311,7 @@ class PlayerEngine {
                         .build()
                 )
 
-            inferMimeType(streamUrl)?.let { mimeType ->
+            forcedMimeType?.let { mimeType ->
                 mediaItemBuilder.setMimeType(mimeType)
             }
 
@@ -237,14 +351,24 @@ class PlayerEngine {
                 C.CONTENT_TYPE_HLS -> MimeTypes.APPLICATION_M3U8
                 C.CONTENT_TYPE_SS -> MimeTypes.APPLICATION_SS
                 else -> {
-                    val query = uri.query?.lowercase() ?: return null
+                    val lower = url.lowercase()
                     when {
-                        query.contains("m3u8") -> MimeTypes.APPLICATION_M3U8
-                        query.contains("mpd") -> MimeTypes.APPLICATION_MPD
+                        lower.contains(".mpd") || lower.contains("=mpd") -> MimeTypes.APPLICATION_MPD
+                        lower.contains(".m3u8") || lower.contains("=m3u8") -> MimeTypes.APPLICATION_M3U8
                         else -> null
                     }
                 }
             }
+        }
+
+        private fun isDirectStreamOrMacPortal(url: String): Boolean {
+            val lower = url.lowercase()
+            val isDirectContainer = lower.endsWith(".ts") || lower.contains(".ts?") || lower.contains("=ts") ||
+                lower.endsWith(".mp4") || lower.contains(".mp4?") ||
+                lower.endsWith(".mkv") || lower.contains(".mkv?")
+            val isMacPortal = lower.contains("mac=") &&
+                (lower.contains("stream=") || lower.contains("extension=") || lower.contains("type="))
+            return isDirectContainer || isMacPortal
         }
 
         private fun buildDrmSessionManager(
@@ -258,7 +382,6 @@ class PlayerEngine {
 
             return runCatching {
                 when {
-                    // 1. Inline ClearKey JWK JSON passed directly in drmLicenseUrl
                     licenseUrl.startsWith("{") && licenseUrl.contains("\"keys\"") -> {
                         val callback = LocalMediaDrmCallback(licenseUrl.toByteArray(Charsets.UTF_8))
                         DefaultDrmSessionManager.Builder()
@@ -267,7 +390,6 @@ class PlayerEngine {
                             .build(callback)
                     }
 
-                    // 2. Local ClearKey kid:key pairs
                     localKeys.isNotEmpty() -> {
                         val jwkJson = buildClearKeyJwk(localKeys)
                         val callback = LocalMediaDrmCallback(jwkJson.toByteArray(Charsets.UTF_8))
@@ -277,7 +399,6 @@ class PlayerEngine {
                             .build(callback)
                     }
 
-                    // 3. Remote HTTP/HTTPS License Server (Widevine or ClearKey)
                     licenseUrl.startsWith("http://", ignoreCase = true) ||
                         licenseUrl.startsWith("https://", ignoreCase = true) -> {
                         val targetUuid = if (drmScheme == "widevine") C.WIDEVINE_UUID else C.CLEARKEY_UUID
