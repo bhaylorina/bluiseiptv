@@ -15,7 +15,7 @@ android {
         resConfigs "en"
 
         ndk {
-            abiFilters 'armeabi-v7a', 'arm64-v8a'
+            abiFilters 'arm64-v8a'
         }
     }
 
@@ -52,6 +52,14 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    // ===== ADDED: Forces native libs to be extracted to disk as real files =====
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+    // =============================================================================
 }
 
 kotlin {
