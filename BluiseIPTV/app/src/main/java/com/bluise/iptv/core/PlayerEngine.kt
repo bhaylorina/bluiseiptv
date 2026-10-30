@@ -302,20 +302,11 @@ class PlayerEngine {
                 mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
             }
             val mediaItemBuilder = MediaItem.Builder()
-    .setUri(streamUrl)
-    .setLiveConfiguration(
-        MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(40_000) // Player ko 40 seconds past mein start karega
-            .setMaxOffsetMs(50_000)    // Maximum 50 seconds peeche jane dega buffer ke liye
-            .setMinPlaybackSpeed(0.97f)
-            .setMaxPlaybackSpeed(1.03f)
-            .build()
-    )
-
-            val mediaItemBuilder = MediaItem.Builder()
                 .setUri(streamUrl)
                 .setLiveConfiguration(
                     MediaItem.LiveConfiguration.Builder()
+                        .setTargetOffsetMs(40_000)
+                        .setMaxOffsetMs(50_000)
                         .setMinPlaybackSpeed(0.97f)
                         .setMaxPlaybackSpeed(1.03f)
                         .build()
