@@ -30,6 +30,12 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import okhttp3.Call
+import java.net.Proxy
+import java.net.ProxySelector
+import java.net.SocketAddress
+import java.net.URI
+import java.net.InetSocketAddress
+import java.io.IOException
 import okhttp3.Callback
 import okhttp3.ConnectionPool
 import okhttp3.Cookie
