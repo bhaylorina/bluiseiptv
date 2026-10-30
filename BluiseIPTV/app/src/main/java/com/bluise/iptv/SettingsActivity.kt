@@ -243,4 +243,4 @@ class SettingsActivity : AppCompatActivity() {
             finish()
         }
     })
-    }
+    }}
