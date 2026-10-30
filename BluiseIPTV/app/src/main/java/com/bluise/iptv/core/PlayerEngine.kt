@@ -98,23 +98,9 @@ class PlayerEngine {
             maxRequests = 64
             maxRequestsPerHost = 15
         }
-                private val testProxySelector = object : ProxySelector() {
-            private val localSocks = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", 25344))
-            
-            override fun select(uri: URI?): List<Proxy> {
-                // Sirf jio.com wale URLs ko Termux proxy (Cloudflare) ke through bheje
-                return if (uri?.host?.lowercase()?.contains("jio.com") == true) {
-                    listOf(localSocks, Proxy.NO_PROXY)
-                } else {
-                    listOf(Proxy.NO_PROXY)
-                }
-            }
-            override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) {}
-        }
 
         val okHttpClient: OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
-            .proxySelector(testProxySelector)
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS)
