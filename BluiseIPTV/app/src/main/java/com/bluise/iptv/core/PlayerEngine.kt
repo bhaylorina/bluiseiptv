@@ -102,17 +102,6 @@ class PlayerEngine {
         @Volatile
         private var appContext: Context? = null
 
-        // Strong reference rakhna zaroori hai (SharedPreferences weak ref rakhta hai)
-        private val warpPrefListener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
-            if (key == KEY_WARP_ENABLED) {
-                warpEnabled = prefs.getBoolean(KEY_WARP_ENABLED, true)
-                val ctx = appContext ?: return@OnSharedPreferenceChangeListener
-                if (warpEnabled) startNativeProxy(ctx) else stopNativeProxy()
-                // Purani pooled connections (direct ya SOCKS) dobara use na hon
-                Thread { okHttpClient.connectionPool.evictAll() }.start()
-            }
-        }
-
         private fun initPrefs(context: Context) {
             if (!prefsInitialized.compareAndSet(false, true)) return
             val app = context.applicationContext
@@ -158,21 +147,29 @@ class PlayerEngine {
             maxRequestsPerHost = 15
         }
 
-        private val jioProxySelector = object : ProxySelector() {
-            private val localSocks = Proxy(Proxy.Type.SOCKS, InetSocketAddress(PROXY_HOST, PROXY_PORT))
+        // WARP ON: Jio hosts SIRF SOCKS se jayenge. Direct fallback nahi, warna proxy fail hone par
+        // traffic chupke se direct chala jata hai (sniffer me log aate hain). Baaki hosts direct.
+        private val warpProxySelector = object : ProxySelector() {
+            private val socksList =
+                listOf(Proxy(Proxy.Type.SOCKS, InetSocketAddress(PROXY_HOST, PROXY_PORT)))
 
             override fun select(uri: URI?): List<Proxy> {
-                if (!warpEnabled) return NO_PROXY_LIST
                 val host = uri?.host?.lowercase().orEmpty()
-                return if (host in PROXY_HOSTS) listOf(localSocks, Proxy.NO_PROXY) else NO_PROXY_LIST
+                return if (host in PROXY_HOSTS) socksList else NO_PROXY_LIST
             }
 
             override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) {}
         }
 
-        val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+        // WARP OFF: sab kuch direct
+        private val directProxySelector = object : ProxySelector() {
+            override fun select(uri: URI?): List<Proxy> = NO_PROXY_LIST
+            override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) {}
+        }
+
+        private fun buildBaseClient(selector: ProxySelector): OkHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
-            .proxySelector(jioProxySelector)
+            .proxySelector(selector)
             .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
@@ -182,6 +179,28 @@ class PlayerEngine {
             .followSslRedirects(true)
             .cookieJar(cookieJar)
             .build()
+
+        // Alag selector + alag connection pool: toggle karte hi purani connection reuse hona impossible
+        private val warpClient: OkHttpClient = buildBaseClient(warpProxySelector)
+        private val directClient: OkHttpClient = buildBaseClient(directProxySelector)
+
+        // Har baar current toggle ke hisaab se sahi client milta hai (restart ki zaroorat nahi)
+        val okHttpClient: OkHttpClient
+            get() = if (warpEnabled) warpClient else directClient
+
+        // Strong reference rakhna zaroori hai (SharedPreferences weak ref rakhta hai)
+        private val warpPrefListener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+            if (key == KEY_WARP_ENABLED) {
+                warpEnabled = prefs.getBoolean(KEY_WARP_ENABLED, true)
+                val ctx = appContext ?: return@OnSharedPreferenceChangeListener
+                if (warpEnabled) startNativeProxy(ctx) else stopNativeProxy()
+                // Purane idle sockets (dead SOCKS / direct) saaf kar do
+                Thread {
+                    warpClient.connectionPool.evictAll()
+                    directClient.connectionPool.evictAll()
+                }.start()
+            }
+        }
 
         private val loadErrorPolicy = DefaultLoadErrorHandlingPolicy(3)
 
@@ -383,6 +402,7 @@ class PlayerEngine {
                         }
                     } else {
                         Log.e(PROXY_TAG, "⌛ Timed out waiting for SOCKS5 port to open")
+                        showToast(appCtx, "WARP proxy failed to start")
                         failProxyLaunch(launchId, process)
                     }
 
