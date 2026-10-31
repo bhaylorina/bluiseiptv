@@ -108,6 +108,8 @@ class PlayerEngine {
                 warpEnabled = prefs.getBoolean(KEY_WARP_ENABLED, true)
                 val ctx = appContext ?: return@OnSharedPreferenceChangeListener
                 if (warpEnabled) startNativeProxy(ctx) else stopNativeProxy()
+                // Purani pooled connections (direct ya SOCKS) dobara use na hon
+                Thread { okHttpClient.connectionPool.evictAll() }.start()
             }
         }
 
