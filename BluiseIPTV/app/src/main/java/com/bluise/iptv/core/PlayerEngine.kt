@@ -1,9 +1,11 @@
 package com.bluise.iptv.core
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import android.widget.Toast
@@ -12,7 +14,6 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
-import androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -31,15 +32,6 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import okhttp3.Call
-import java.net.Proxy
-import java.net.ProxySelector
-import java.net.SocketAddress
-import java.net.URI
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.io.IOException
-import java.io.File
-import java.io.FileOutputStream
 import okhttp3.Callback
 import okhttp3.ConnectionPool
 import okhttp3.Cookie
@@ -47,10 +39,17 @@ import okhttp3.CookieJar
 import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
-import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
-import java.util.concurrent.ConcurrentHashMap
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.ProxySelector
+import java.net.Socket
+import java.net.SocketAddress
+import java.net.URI
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -61,280 +60,431 @@ class PlayerEngine {
 
     companion object {
 
-    private const val TAG = "PlayerEngine"
-    private const val PROXY_TAG = "WireProxy"
+        private const val TAG = "PlayerEngine"
+        private const val PROXY_TAG = "WireProxy"
 
-    private const val DEFAULT_USER_AGENT =
-        "ExoPlayerLib/1.11.1 (Linux; Android) AndroidXMedia3/1.11.1"
+        private const val DEFAULT_USER_AGENT =
+            "ExoPlayerLib/1.11.1 (Linux; Android) AndroidXMedia3/1.11.1"
 
-    private const val PROXY_HOST = "127.0.0.1"
-    private const val PROXY_PORT = 25344
-    private const val PROXY_READY_TIMEOUT_MS = 8000L
+        private const val PROXY_HOST = "127.0.0.1"
+        private const val PROXY_PORT = 25344
+        private const val PROXY_READY_TIMEOUT_MS = 8000L
+        private const val PROXY_POLL_MS = 100L
+        private const val PROBE_TIMEOUT_SEC = 5L
 
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private val playbackGeneration = AtomicInteger(0)
+        private const val PREFS_NAME = "iptv_settings"
+        private const val KEY_WARP_ENABLED = "warp_proxy_enabled"
 
-    @Volatile
-    private var activeProbeCall: Call? = null
+        // Sirf in domains par WARP proxy lagega
+        private val PROXY_HOSTS = setOf("jiotvbpkstb.cdn.jio.com", "jiotvbpkmob.cdn.jio.com")
+        private val NO_PROXY_LIST = listOf(Proxy.NO_PROXY)
 
-    private val proxyStarted = AtomicBoolean(false)
+        private val mainHandler = Handler(Looper.getMainLooper())
+        private val playbackGeneration = AtomicInteger(0)
 
-    @Volatile
-    private var proxyProcess: Process? = null
-    
-    // 🔥 NAYA: SharedPreferences read karne ke liye Context save karna hoga
-    @Volatile
-    private var appContext: Context? = null
+        @Volatile
+        private var activeProbeCall: Call? = null
 
-    private val cookieStore = ConcurrentHashMap<String, CopyOnWriteArrayList<Cookie>>()
+        // ---------------- WARP proxy state ----------------
+        private val proxyLock = Any()
+        private val proxyStarted = AtomicBoolean(false)   // launching ya running
+        @Volatile
+        private var proxyReady = false                    // SOCKS port open ho chuka hai
+        @Volatile
+        private var proxyProcess: Process? = null
+        private var proxyLaunchId = 0                     // proxyLock ke andar hi touch karna
 
-    private val cookieJar = object : CookieJar {
-        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-            val now = System.currentTimeMillis()
-            val validCookies = cookies.filter { cookie ->
-                val isValidTime = cookie.expiresAt > now
-                val isAkamaiPoison = cookie.name.equals("hdntl", ignoreCase = true) &&
-                    cookie.value.equals("expired", ignoreCase = true)
-                isValidTime && !isAkamaiPoison
-            }
-            if (validCookies.isNotEmpty()) {
-                val hostCookies = cookieStore.getOrPut(url.host) { CopyOnWriteArrayList() }
-                validCookies.forEach { incoming ->
-                    hostCookies.removeAll { existing -> existing.name == incoming.name }
-                    hostCookies.add(incoming)
-                }
-            }
-        }
+        // ---------------- Settings cache ----------------
+        // Selector har connection par SharedPreferences nahi padhega, ye cached value use karega
+        @Volatile
+        private var warpEnabled = true
+        private val prefsInitialized = AtomicBoolean(false)
+        @Volatile
+        private var appContext: Context? = null
 
-        override fun loadForRequest(url: HttpUrl): List<Cookie> {
-            val hostCookies = cookieStore[url.host] ?: return emptyList()
-            val now = System.currentTimeMillis()
-            return hostCookies.filter { it.expiresAt > now }
-        }
-    }
-
-    private val dispatcher = Dispatcher().apply {
-        maxRequests = 64
-        maxRequestsPerHost = 15
-    }
-
-    // 🔥 MODIFIED: Proxy Selector Logic (Strict Domain & Toggle Check)
-    private val jioProxySelector = object : ProxySelector() {
-        private val localSocks = Proxy(Proxy.Type.SOCKS, InetSocketAddress(PROXY_HOST, PROXY_PORT))
-
-        override fun select(uri: URI?): List<Proxy> {
-            // Check karein ki user ne setting me WARP Proxy ON rakha hai ya OFF
-            val isWarpEnabled = appContext?.getSharedPreferences("iptv_settings", Context.MODE_PRIVATE)
-                ?.getBoolean("warp_proxy_enabled", true) ?: true
-
-            if (!isWarpEnabled) {
-                return listOf(Proxy.NO_PROXY)
-            }
-
-            // Sirf in 2 specific domains par proxy lagayega
-            val host = uri?.host?.lowercase() ?: ""
-            return if (host == "jiotvbpkstb.cdn.jio.com" || host == "jiotvbpkmob.cdn.jio.com") {
-                listOf(localSocks, Proxy.NO_PROXY)
-            } else {
-                listOf(Proxy.NO_PROXY)
+        // Strong reference rakhna zaroori hai (SharedPreferences weak ref rakhta hai)
+        private val warpPrefListener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+            if (key == KEY_WARP_ENABLED) {
+                warpEnabled = prefs.getBoolean(KEY_WARP_ENABLED, true)
+                val ctx = appContext ?: return@OnSharedPreferenceChangeListener
+                if (warpEnabled) startNativeProxy(ctx) else stopNativeProxy()
             }
         }
-        override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) {}
-    }
-    // -----------------------------------
 
-    val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .dispatcher(dispatcher)
-        .proxySelector(jioProxySelector)
-        .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
-        .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .cookieJar(cookieJar)
-        .build()
-
-    private val loadErrorPolicy = DefaultLoadErrorHandlingPolicy(3)
-
-    // 🔥 NAYA: Proxy process ko band karne ka function
-    private fun stopNativeProxy() {
-        if (proxyStarted.compareAndSet(true, false)) {
-            Log.d(PROXY_TAG, "Stopping WireProxy process...")
-            proxyProcess?.destroy()
-            proxyProcess = null
-        }
-    }
-
-    // --- Native WireProxy (Cloudflare WARP) Starter ---
-    private fun startNativeProxy(context: Context) {
-        val isWarpEnabled = context.getSharedPreferences("iptv_settings", Context.MODE_PRIVATE)
-            .getBoolean("warp_proxy_enabled", true)
-
-        if (!isWarpEnabled) {
-            stopNativeProxy()
-            return
+        private fun initPrefs(context: Context) {
+            if (!prefsInitialized.compareAndSet(false, true)) return
+            val app = context.applicationContext
+            appContext = app
+            val prefs = app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            warpEnabled = prefs.getBoolean(KEY_WARP_ENABLED, true)
+            prefs.registerOnSharedPreferenceChangeListener(warpPrefListener)
         }
 
-        if (!proxyStarted.compareAndSet(false, true)) {
-            Log.d(PROXY_TAG, "Proxy already started/starting, skipping duplicate launch")
-            return
-        }
+        // ---------------- Cookies ----------------
+        private val cookieStore = CopyOnWriteArrayList<Cookie>()
 
-        val appCtx = context.applicationContext
-
-        Thread {
-            try {
-                Log.d(PROXY_TAG, "Preparing wireproxy config...")
-
-                val confFile = File(appCtx.filesDir, "wireproxy.conf")
-                appCtx.assets.open("wireproxy.conf").use { input ->
-                    FileOutputStream(confFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                Log.d(PROXY_TAG, "Config copied to ${confFile.absolutePath}")
-
-                val binPath = File(appCtx.applicationInfo.nativeLibraryDir, "libwireproxy.so")
-                Log.d(PROXY_TAG, "Looking for binary at: ${binPath.absolutePath}")
-
-                if (!binPath.exists()) {
-                    Log.e(PROXY_TAG, "libwireproxy.so NOT FOUND!")
-                    showToast(appCtx, "WARP proxy failed: binary not found")
-                    proxyStarted.set(false)
-                    return@Thread
-                }
-
-                val madeExecutable = binPath.setExecutable(true, false)
-                Log.d(PROXY_TAG, "setExecutable result: $madeExecutable")
-
-                Log.d(PROXY_TAG, "Launching wireproxy process...")
-                val process = ProcessBuilder(binPath.absolutePath, "-c", confFile.absolutePath)
-                    .redirectErrorStream(true)
-                    .start()
-                proxyProcess = process
-
-                Thread {
-                    try {
-                        process.inputStream.bufferedReader().forEachLine { line ->
-                            Log.d(PROXY_TAG, line)
+        private val cookieJar = object : CookieJar {
+            override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+                val now = System.currentTimeMillis()
+                synchronized(cookieStore) {
+                    cookieStore.removeAll { it.expiresAt <= now }
+                    cookies.forEach { incoming ->
+                        val isValidTime = incoming.expiresAt > now
+                        val isAkamaiPoison = incoming.name.equals("hdntl", ignoreCase = true) &&
+                            incoming.value.equals("expired", ignoreCase = true)
+                        if (isValidTime && !isAkamaiPoison) {
+                            cookieStore.removeAll {
+                                it.name == incoming.name &&
+                                    it.domain == incoming.domain &&
+                                    it.path == incoming.path
+                            }
+                            cookieStore.add(incoming)
                         }
-                    } catch (e: IOException) {
-                        Log.w(PROXY_TAG, "Log stream closed: ${e.message}")
                     }
-                }.apply {
-                    isDaemon = true
-                    start()
                 }
+            }
 
-                Thread.sleep(500)
-                if (!process.isAlive) {
-                    val exitCode = process.exitValue()
-                    Log.e(PROXY_TAG, "wireproxy exited immediately! Exit code: $exitCode")
-                    showToast(appCtx, "WARP proxy crashed (code $exitCode)")
-                    proxyStarted.set(false)
-                    return@Thread
+            // matches() domain, path aur secure rules check karta hai
+            override fun loadForRequest(url: HttpUrl): List<Cookie> {
+                val now = System.currentTimeMillis()
+                return cookieStore.filter { it.expiresAt > now && it.matches(url) }
+            }
+        }
+
+        private val dispatcher = Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 15
+        }
+
+        private val jioProxySelector = object : ProxySelector() {
+            private val localSocks = Proxy(Proxy.Type.SOCKS, InetSocketAddress(PROXY_HOST, PROXY_PORT))
+
+            override fun select(uri: URI?): List<Proxy> {
+                if (!warpEnabled) return NO_PROXY_LIST
+                val host = uri?.host?.lowercase().orEmpty()
+                return if (host in PROXY_HOSTS) listOf(localSocks, Proxy.NO_PROXY) else NO_PROXY_LIST
+            }
+
+            override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) {}
+        }
+
+        val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+            .dispatcher(dispatcher)
+            .proxySelector(jioProxySelector)
+            .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .cookieJar(cookieJar)
+            .build()
+
+        private val loadErrorPolicy = DefaultLoadErrorHandlingPolicy(3)
+
+        // ---------------- Channel client (headers har hop par, 302 redirect ke baad bhi) ----------------
+
+        /**
+         * Network interceptor har hop par chalta hai, isliye 302 redirect ke baad wali request
+         * par bhi channel headers dobara lagte hain (Authorization jaisa header cross-host
+         * redirect me OkHttp khud hata deta hai).
+         * Cookie header jar wale cookies ke saath merge hota hai, overwrite nahi hota.
+         */
+        private fun buildChannelClient(headers: Map<String, String>, callTimeoutSec: Long = 0L): OkHttpClient {
+            val builder = okHttpClient.newBuilder()
+            if (callTimeoutSec > 0) builder.callTimeout(callTimeoutSec, TimeUnit.SECONDS)
+
+            return builder.addNetworkInterceptor { chain ->
+                val request = chain.request()
+                val requestBuilder = request.newBuilder()
+                headers.forEach { (key, value) ->
+                    when {
+                        key.equals("Host", ignoreCase = true) -> Unit
+                        key.equals("Cookie", ignoreCase = true) ->
+                            requestBuilder.header("Cookie", mergeCookieHeaders(value, request.header("Cookie")))
+                        else -> requestBuilder.header(key, value)
+                    }
                 }
+                chain.proceed(requestBuilder.build())
+            }.build()
+        }
 
-                val portReady = waitForProxyPort(PROXY_HOST, PROXY_PORT, PROXY_READY_TIMEOUT_MS)
-
-                if (portReady) {
-                    Log.d(PROXY_TAG, "✅ WireProxy (Cloudflare WARP) is UP on $PROXY_HOST:$PROXY_PORT")
-                } else {
-                    Log.e(PROXY_TAG, "⌛ Timed out waiting for SOCKS5 port to open")
-                    proxyStarted.set(false)
+        // Static channel cookie + jar cookie merge. Same name par jar wali value jeetegi.
+        private fun mergeCookieHeaders(staticCookie: String, jarCookie: String?): String {
+            if (jarCookie.isNullOrBlank() || jarCookie == staticCookie) return staticCookie
+            val merged = LinkedHashMap<String, String>()
+            listOf(staticCookie, jarCookie).forEach { raw ->
+                raw.split(";").forEach { part ->
+                    val pair = part.trim()
+                    val idx = pair.indexOf('=')
+                    if (idx > 0) {
+                        merged[pair.substring(0, idx).trim()] = pair.substring(idx + 1).trim()
+                    }
                 }
+            }
+            return merged.entries.joinToString("; ") { "${it.key}=${it.value}" }
+        }
 
-            } catch (e: Exception) {
-                Log.e(PROXY_TAG, "Failed to start native proxy", e)
+        // ---------------- Native WireProxy (Cloudflare WARP) ----------------
+
+        private fun isProxyStarting(): Boolean = warpEnabled && proxyStarted.get() && !proxyReady
+
+        private fun stopNativeProxy() {
+            val process = synchronized(proxyLock) {
+                if (!proxyStarted.get() && proxyProcess == null) return
+                proxyLaunchId++ // in-flight launch ko cancel kar deta hai
+                val p = proxyProcess
+                proxyProcess = null
+                proxyReady = false
                 proxyStarted.set(false)
+                p
             }
-        }.apply {
-            isDaemon = true
-            start()
+            if (process != null) {
+                Log.d(PROXY_TAG, "Stopping WireProxy process...")
+                process.destroy()
+            }
         }
-    }
 
-    private fun waitForProxyPort(host: String, port: Int, timeoutMs: Long): Boolean {
-        val start = System.currentTimeMillis()
-        while (System.currentTimeMillis() - start < timeoutMs) {
-            try {
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress(host, port), 300)
+        // Launch fail / timeout par state reset + process kill (orphan process nahi bachega)
+        private fun failProxyLaunch(launchId: Int, process: Process?) {
+            synchronized(proxyLock) {
+                if (launchId == proxyLaunchId) {
+                    proxyProcess = null
+                    proxyReady = false
+                    proxyStarted.set(false)
                 }
-                return true
-            } catch (e: IOException) {
-                Thread.sleep(200)
+            }
+            process?.destroy()
+        }
+
+        // Process khud mar gaya to state clear, taaki agla playChannel / createPlayer restart kar sake
+        private fun onProxyProcessEnded(process: Process) {
+            synchronized(proxyLock) {
+                if (proxyProcess === process) {
+                    Log.w(PROXY_TAG, "wireproxy process ended")
+                    proxyProcess = null
+                    proxyReady = false
+                    proxyStarted.set(false)
+                }
             }
         }
-        return false
-    }
 
-    private fun showToast(context: Context, message: String) {
-        mainHandler.post {
-            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        private fun startNativeProxy(context: Context) {
+            initPrefs(context)
+
+            if (!warpEnabled) {
+                stopNativeProxy()
+                return
+            }
+
+            val launchId = synchronized(proxyLock) {
+                if (proxyStarted.get()) {
+                    val p = proxyProcess
+                    if (p == null || p.isAlive) {
+                        // launching ya already running
+                        return
+                    }
+                    // process mar chuka hai, restart karenge
+                    proxyProcess = null
+                }
+                proxyReady = false
+                proxyStarted.set(true)
+                ++proxyLaunchId
+            }
+
+            val appCtx = context.applicationContext
+
+            Thread {
+                var launched: Process? = null
+                try {
+                    Log.d(PROXY_TAG, "Preparing wireproxy config...")
+
+                    val confFile = File(appCtx.filesDir, "wireproxy.conf")
+                    appCtx.assets.open("wireproxy.conf").use { input ->
+                        FileOutputStream(confFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    Log.d(PROXY_TAG, "Config copied to ${confFile.absolutePath}")
+
+                    val binPath = File(appCtx.applicationInfo.nativeLibraryDir, "libwireproxy.so")
+                    Log.d(PROXY_TAG, "Looking for binary at: ${binPath.absolutePath}")
+
+                    if (!binPath.exists()) {
+                        Log.e(PROXY_TAG, "libwireproxy.so NOT FOUND!")
+                        showToast(appCtx, "WARP proxy failed: binary not found")
+                        failProxyLaunch(launchId, null)
+                        return@Thread
+                    }
+
+                    val madeExecutable = binPath.setExecutable(true, false)
+                    Log.d(PROXY_TAG, "setExecutable result: $madeExecutable")
+
+                    Log.d(PROXY_TAG, "Launching wireproxy process...")
+                    val process = ProcessBuilder(binPath.absolutePath, "-c", confFile.absolutePath)
+                        .redirectErrorStream(true)
+                        .start()
+                    launched = process
+
+                    // Agar is beech stop/restart ho gaya to ye process orphan hoga, kill kar do
+                    val registered = synchronized(proxyLock) {
+                        if (launchId == proxyLaunchId && proxyStarted.get()) {
+                            proxyProcess = process
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    if (!registered) {
+                        process.destroy()
+                        return@Thread
+                    }
+
+                    // Log reader + exit watcher (stdout band hone ka matlab process khatam)
+                    Thread {
+                        try {
+                            process.inputStream.bufferedReader().forEachLine { line ->
+                                Log.d(PROXY_TAG, line)
+                            }
+                        } catch (e: IOException) {
+                            Log.w(PROXY_TAG, "Log stream closed: ${e.message}")
+                        }
+                        onProxyProcessEnded(process)
+                    }.apply {
+                        isDaemon = true
+                        start()
+                    }
+
+                    Thread.sleep(500)
+                    if (!process.isAlive) {
+                        val exitCode = process.exitValue()
+                        Log.e(PROXY_TAG, "wireproxy exited immediately! Exit code: $exitCode")
+                        showToast(appCtx, "WARP proxy crashed (code $exitCode)")
+                        failProxyLaunch(launchId, process)
+                        return@Thread
+                    }
+
+                    val portReady = waitForProxyPort(PROXY_HOST, PROXY_PORT, PROXY_READY_TIMEOUT_MS, process)
+
+                    if (portReady) {
+                        val marked = synchronized(proxyLock) {
+                            if (launchId == proxyLaunchId && proxyStarted.get()) {
+                                proxyReady = true
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        if (marked) {
+                            Log.d(PROXY_TAG, "✅ WireProxy (Cloudflare WARP) is UP on $PROXY_HOST:$PROXY_PORT")
+                        }
+                    } else {
+                        Log.e(PROXY_TAG, "⌛ Timed out waiting for SOCKS5 port to open")
+                        failProxyLaunch(launchId, process)
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(PROXY_TAG, "Failed to start native proxy", e)
+                    failProxyLaunch(launchId, launched)
+                }
+            }.apply {
+                isDaemon = true
+                start()
+            }
         }
-    }
 
-    fun createPlayer(context: Context): ExoPlayer {
-        // 🔥 Context save karein proxy selector ke liye
-        appContext = context.applicationContext
-        
-        // Start (or confirm already started) the WARP proxy
-        startNativeProxy(context)
+        private fun waitForProxyPort(host: String, port: Int, timeoutMs: Long, process: Process): Boolean {
+            val start = System.currentTimeMillis()
+            while (process.isAlive && System.currentTimeMillis() - start < timeoutMs) {
+                try {
+                    Socket().use { socket ->
+                        socket.connect(InetSocketAddress(host, port), 300)
+                    }
+                    return true
+                } catch (e: IOException) {
+                    Thread.sleep(200)
+                }
+            }
+            return false
+        }
 
-        val renderersFactory = DefaultRenderersFactory(context)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-            .setEnableDecoderFallback(true)
-
-        val trackSelector = DefaultTrackSelector(context).apply {
-            parameters = DefaultTrackSelector.Parameters.Builder(context)
-                .setTunnelingEnabled(true)
-                .setExceedAudioConstraintsIfNecessary(true)
-                .setExceedVideoConstraintsIfNecessary(true)
-                .setAllowVideoNonSeamlessAdaptiveness(true)
-                .setAllowAudioMixedMimeTypeAdaptiveness(false)
-                .setAllowAudioMixedChannelCountAdaptiveness(false)
-                .setViewportSizeToPhysicalDisplaySize(context, true)
-                .setAudioOffloadPreferences(
-                    AudioOffloadPreferences.Builder()
-                        .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED)
-                        .build()
+        // Proxy start ho raha ho to playback ko ready hone tak hold karta hai (main thread par, polling)
+        private fun runWhenProxyReady(generation: Int, deadline: Long, action: () -> Unit) {
+            if (generation != playbackGeneration.get()) return
+            if (!isProxyStarting() || SystemClock.elapsedRealtime() >= deadline) {
+                action()
+            } else {
+                mainHandler.postDelayed(
+                    { runWhenProxyReady(generation, deadline, action) },
+                    PROXY_POLL_MS
                 )
+            }
+        }
+
+        private fun showToast(context: Context, message: String) {
+            mainHandler.post {
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        }
+
+        // ---------------- Player ----------------
+
+        fun createPlayer(context: Context): ExoPlayer {
+            // Start (or confirm already started) the WARP proxy
+            startNativeProxy(context)
+
+            val renderersFactory = DefaultRenderersFactory(context)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+                .setEnableDecoderFallback(true)
+
+            val trackSelector = DefaultTrackSelector(context).apply {
+                parameters = DefaultTrackSelector.Parameters.Builder(context)
+                    .setTunnelingEnabled(true)
+                    .setViewportSizeToPhysicalDisplaySize(context, true)
+                    .build()
+            }
+
+            val loadControl = DefaultLoadControl.Builder()
+                .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
+                .setBufferDurationsMs(15_000, 45_000, 1_500, 3_000)
+                .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
+
+            val bandwidthMeter = DefaultBandwidthMeter.Builder(context)
+                .setResetOnNetworkTypeChange(true)
+                .build()
+
+            return ExoPlayer.Builder(context)
+                .setRenderersFactory(renderersFactory)
+                .setTrackSelector(trackSelector)
+                .setLoadControl(loadControl)
+                .setBandwidthMeter(bandwidthMeter)
+                .build()
+                .apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(C.USAGE_MEDIA)
+                            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                            .build(),
+                        true
+                    )
+                    setHandleAudioBecomingNoisy(true)
+                }
         }
 
-        val loadControl = DefaultLoadControl.Builder()
-            .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-            .setBufferDurationsMs(15_000, 45_000, 1_500, 3_000)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
-
-        val bandwidthMeter = DefaultBandwidthMeter.Builder(context)
-            .setResetOnNetworkTypeChange(true)
-            .build()
-
-        return ExoPlayer.Builder(context)
-            .setRenderersFactory(renderersFactory)
-            .setTrackSelector(trackSelector)
-            .setLoadControl(loadControl)
-            .setBandwidthMeter(bandwidthMeter)
-            .build()
-            .apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(C.USAGE_MEDIA)
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .build(),
-                    true
-                )
-                setHandleAudioBecomingNoisy(true)
-            }
-    }
-    
-    // ... (Baaki ka playChannel, probeAndPlay, startPlayback code waisa hi rahega)
+        /**
+         * App / player band karte waqt call karein (e.g. onDestroy jab isFinishing ho).
+         * Active probe cancel karta hai, pending callbacks hatata hai aur wireproxy band karta hai.
+         * Agla createPlayer() / playChannel() proxy ko dobara start kar dega.
+         */
+        fun release() {
+            playbackGeneration.incrementAndGet()
+            activeProbeCall?.cancel()
+            activeProbeCall = null
+            mainHandler.removeCallbacksAndMessages(null)
+            stopNativeProxy()
+        }
 
         fun playChannel(context: Context, player: ExoPlayer, channel: Channel) {
             activeProbeCall?.cancel()
@@ -344,14 +494,31 @@ class PlayerEngine {
             val streamUrl = channel.url.trim()
             if (streamUrl.isEmpty()) return
 
+            // Idempotent: proxy mar gaya ho to yahin restart ho jayega
+            startNativeProxy(context)
+
+            // Proxy start ho raha ho to uske ready hone tak wait, warna turant play
+            val deadline = SystemClock.elapsedRealtime() + PROXY_READY_TIMEOUT_MS
+            runWhenProxyReady(currentGeneration, deadline) {
+                launchPlayback(context, player, channel, streamUrl, currentGeneration)
+            }
+        }
+
+        private fun launchPlayback(
+            context: Context,
+            player: ExoPlayer,
+            channel: Channel,
+            streamUrl: String,
+            generation: Int
+        ) {
             val headers = buildHeaders(channel)
             val userAgent = headers["User-Agent"] ?: DEFAULT_USER_AGENT
             val knownMimeType = inferMimeType(streamUrl)
 
             if (knownMimeType != null || isDirectStreamOrMacPortal(streamUrl)) {
-                startPlayback(context, player, channel, headers, userAgent, streamUrl, knownMimeType, currentGeneration)
+                startPlayback(context, player, channel, headers, userAgent, streamUrl, knownMimeType, generation)
             } else {
-                probeAndPlay(context, player, channel, headers, userAgent, streamUrl, currentGeneration)
+                probeAndPlay(context, player, channel, headers, userAgent, streamUrl, generation)
             }
         }
 
@@ -367,7 +534,8 @@ class PlayerEngine {
             val requestBuilder = Request.Builder().url(url)
             headers.forEach { (key, value) -> requestBuilder.header(key, value) }
 
-            val call = okHttpClient.newCall(requestBuilder.build())
+            // Probe me bhi redirect par headers jaane chahiye + chhota timeout taaki zap slow na ho
+            val call = buildChannelClient(headers, PROBE_TIMEOUT_SEC).newCall(requestBuilder.build())
             activeProbeCall = call
 
             call.enqueue(object : Callback {
@@ -438,18 +606,8 @@ class PlayerEngine {
         ) {
             if (generation != playbackGeneration.get()) return
 
-            val channelClient = okHttpClient.newBuilder()
-                .addNetworkInterceptor { chain ->
-                    val original = chain.request()
-                    val requestBuilder = original.newBuilder()
-                    headers.forEach { (key, value) ->
-                        if (!key.equals("Host", ignoreCase = true)) {
-                            requestBuilder.header(key, value)
-                        }
-                    }
-                    chain.proceed(requestBuilder.build())
-                }
-                .build()
+            // Har hop (302 redirect ke baad bhi) par headers lagte hain
+            val channelClient = buildChannelClient(headers)
 
             val httpDataSourceFactory = OkHttpDataSource.Factory(channelClient)
                 .setUserAgent(userAgent)
