@@ -655,8 +655,8 @@ class PlayerEngine {
                     MediaItem.LiveConfiguration.Builder()
                         .setTargetOffsetMs(40_000)
                         .setMaxOffsetMs(50_000)
-                        .setMinPlaybackSpeed(0.97f)
-                        .setMaxPlaybackSpeed(1.03f)
+                        .setMinPlaybackSpeed(1f)
+                        .setMaxPlaybackSpeed(1f)
                         .build()
                 )
 
