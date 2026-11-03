@@ -57,7 +57,7 @@ object EpgManager {
     private const val MAX_COUNT = 5_000_000
 
     private const val DEFAULT_EPG_URL =
-        "https://dl.dropboxusercontent.com/scl/fi/s986xqczdsn77t1umeqdu/epg.xml.gz?rlkey=z7tlltik2tu75jjb35lh1vci5&st=fm6xgo12"
+        "https://sed.ripalbaria1981.workers.dev/Ripple/main/epg.xml.gz"
 
     var onEpgLoaded: (() -> Unit)? = null
 
