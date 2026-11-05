@@ -518,7 +518,7 @@ class PlayerEngine {
 
             val trackSelector = DefaultTrackSelector(context).apply {
                 parameters = DefaultTrackSelector.Parameters.Builder(context)
-                    .setTunnelingEnabled(true)
+                    .setTunnelingEnabled(false)
                     .setViewportSizeToPhysicalDisplaySize(context, true)
                     .build()
             }
