@@ -414,7 +414,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        reloadThread = Thread {
+                reloadThread = Thread {
             isReloading.set(true)
             try {
                 latch.await(60, TimeUnit.SECONDS)
@@ -422,11 +422,14 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread {
                         masterChannels.clear()
                         masterChannels.addAll(tempAllChannels)
-                        allChannels.clear()
-                        allChannels.addAll(tempAllChannels)
                         isProcessing = false
 
-                        if (TvManager.isTvMode && playlists.isNotEmpty()) {
+                        // Agar user ne pehle hi koi Category Tab khol liya hai, toh use refresh kar do
+                        if (isShowingFavorites && currentCategory != null) {
+                            openCategory(currentCategory!!)
+                        }
+
+                        if (TvManager.isTvMode && playlists.isNotEmpty() && flipper?.displayedChild == 0) {
                             playlistListView?.post { playlistListView?.requestFocus() }
                         }
                     }
