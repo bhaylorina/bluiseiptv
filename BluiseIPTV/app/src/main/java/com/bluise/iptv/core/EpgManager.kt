@@ -40,7 +40,18 @@ object EpgManager {
     @Volatile var isEpgLoaded = false
     @Volatile private var isLoading = false
     var lastEpgLoadTime = 0L
-    private const val CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000L
+    private var lastRemoteCheckTime = 0L
+
+    // Fallback expiry: 12 hours (agar server ETag/Last-Modified header na de)
+    private const val CACHE_EXPIRY_MS = 12 * 60 * 60 * 1000L
+
+    // Ek hi session me baar-baar screen rotate hone par har second check na ho (5 min cooldown)
+    private const val CHECK_COOLDOWN_MS = 5 * 60 * 1000L
+
+    private const val META_PREFS = "epg_cache_meta"
+    private const val KEY_ETAG = "epg_etag"
+    private const val KEY_LAST_MODIFIED = "epg_last_modified"
+    private const val KEY_CONTENT_LENGTH = "epg_content_length"
 
     // Jo show 2 ghante pehle khatam ho chuka hai usko memory mein rakhne ka faayda nahi
     private const val KEEP_PAST_MS = 2 * 60 * 60 * 1000L
@@ -63,31 +74,80 @@ object EpgManager {
 
     fun fetchEpgInBackground(context: Context, epgUrl: String = DEFAULT_EPG_URL) {
         val now = System.currentTimeMillis()
-        if (isEpgLoaded && (now - lastEpgLoadTime < CACHE_EXPIRY_MS)) return
+        if (isEpgLoaded && (now - lastRemoteCheckTime < CHECK_COOLDOWN_MS)) return
         if (isLoading) return // pehle se load chal raha hai, dobara thread mat banao
         isLoading = true
 
-        val cacheFile = File(context.applicationContext.cacheDir, CACHE_FILE)
+        val appCtx = context.applicationContext
+        val cacheFile = File(appCtx.cacheDir, CACHE_FILE)
+        val metaPrefs = appCtx.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
 
         thread(name = "EpgLoader") {
             // Background priority: UI/video ko CPU milega, phone kam garam
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             val t0 = System.currentTimeMillis()
             try {
-                // 1. Disk cache: turant EPG dikhao. 12 ghante se purana nahi hai toh network/parse skip.
+                // 1. Disk cache: turant EPG dikhao taaki user ko wait na karna pade
                 if (!isEpgLoaded && loadFromDisk(cacheFile)) {
                     Log.d(TAG, "EPG disk cache loaded in ${System.currentTimeMillis() - t0} ms")
-                    if (System.currentTimeMillis() - lastEpgLoadTime < CACHE_EXPIRY_MS) return@thread
                 }
 
-                // 2. Cache nahi hai ya purana hai -> download + parse
-                val request = Request.Builder().url(epgUrl).build()
+                // 2. Server par check karo ki repo me nayi epg.xml.gz aayi hai ya nahi
+                val savedEtag = metaPrefs.getString(KEY_ETAG, "").orEmpty()
+                val savedLastMod = metaPrefs.getString(KEY_LAST_MODIFIED, "").orEmpty()
+                val savedLength = metaPrefs.getLong(KEY_CONTENT_LENGTH, -1L)
 
-                PlayerEngine.okHttpClient.newCall(request).execute().use { response ->
+                val requestBuilder = Request.Builder()
+                    .url(epgUrl)
+                    .header("Cache-Control", "no-cache")
+
+                if (isEpgLoaded) {
+                    if (savedEtag.isNotEmpty()) {
+                        requestBuilder.header("If-None-Match", savedEtag)
+                    }
+                    if (savedLastMod.isNotEmpty()) {
+                        requestBuilder.header("If-Modified-Since", savedLastMod)
+                    }
+                }
+
+                PlayerEngine.okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                    lastRemoteCheckTime = System.currentTimeMillis()
+
+                    // Case 1: Server ne bola 304 Not Modified (Repo me wahi file hai)
+                    if (response.code == 304 && isEpgLoaded) {
+                        Log.d(TAG, "EPG already up-to-date (304 Not Modified)")
+                        return@use
+                    }
+
                     if (!response.isSuccessful) {
                         Log.e(TAG, "EPG HTTP error: ${response.code}")
                         return@use
                     }
+
+                    val remoteEtag = response.header("ETag")?.trim().orEmpty()
+                    val remoteLastMod = response.header("Last-Modified")?.trim().orEmpty()
+                    val remoteLength = response.header("Content-Length")?.toLongOrNull() ?: -1L
+
+                    // Case 2: Server ne 200 OK bheja, par headers bata rahe hain ki file change nahi hui
+                    if (isEpgLoaded) {
+                        val isSameFile = when {
+                            remoteEtag.isNotEmpty() && savedEtag.isNotEmpty() ->
+                                remoteEtag == savedEtag
+                            remoteLastMod.isNotEmpty() && savedLastMod.isNotEmpty() ->
+                                remoteLastMod == savedLastMod
+                            remoteLength > 0L && savedLength > 0L ->
+                                remoteLength == savedLength && (System.currentTimeMillis() - lastEpgLoadTime < CACHE_EXPIRY_MS)
+                            else ->
+                                (System.currentTimeMillis() - lastEpgLoadTime < CACHE_EXPIRY_MS)
+                        }
+
+                        if (isSameFile) {
+                            Log.d(TAG, "EPG unchanged on repo (ETag=$remoteEtag, len=$remoteLength), skipping download")
+                            return@use
+                        }
+                    }
+
+                    Log.d(TAG, "New EPG file found on repo! Downloading & updating...")
                     val body = response.body ?: return@use
 
                     val contentType = response.header("Content-Type", "") ?: ""
@@ -131,11 +191,16 @@ object EpgManager {
 
                     isEpgLoaded = true
                     lastEpgLoadTime = System.currentTimeMillis()
-                    Log.d(TAG, "EPG loaded: $kept programmes in ${lastEpgLoadTime - t0} ms (firstLoad=$firstLoad)")
+                    Log.d(TAG, "EPG updated: $kept programmes in ${lastEpgLoadTime - t0} ms (firstLoad=$firstLoad)")
                     onEpgLoaded?.invoke()
 
-                    // Next launch ke liye disk pe save (parse ke baad maps me koi nahi likhta, isliye lock ki zaroorat nahi)
+                    // Next launch ke liye disk pe save + naya ETag/Last-Modified save karo
                     saveToDisk(cacheFile)
+                    metaPrefs.edit()
+                        .putString(KEY_ETAG, remoteEtag)
+                        .putString(KEY_LAST_MODIFIED, remoteLastMod)
+                        .putLong(KEY_CONTENT_LENGTH, remoteLength)
+                        .apply()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "EPG Error: ${e.message}")
@@ -391,20 +456,20 @@ object EpgManager {
 
         var id = searchIndex[clean]
 
-                // Backup: Smart partial match
+        // Backup: Smart partial match
         if (id == null) {
             var possibleId: String? = null
             for ((key, value) in searchIndex) {
                 if (key.contains(clean) || clean.contains(key)) {
                     possibleId = value
-                    
+
                     // Agar hum SD channel dhundh rahe hain (jiske naam mein hd nahi hai), 
                     // par match mein galti se HD aa gaya, toh loop mat roko, aage sahi SD ko dhundho!
                     if (!clean.endsWith("hd") && key.endsWith("hd")) {
-                        continue 
+                        continue
                     }
                     // Exact sahi match mil gaya, ab ruko
-                    break 
+                    break
                 }
             }
             id = possibleId
