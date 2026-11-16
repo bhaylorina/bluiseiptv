@@ -52,16 +52,6 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-
-    // ===== Native libs packaging settings =====
-    packaging {
-        jniLibs {
-            useLegacyPackaging = true
-            // Prevents "Unable to strip libwireproxy.so" warning
-            keepDebugSymbols += ["**/libwireproxy.so"]
-        }
-    }
-    // ============================================
 }
 
 kotlin {
