@@ -452,7 +452,7 @@ class PlayerEngine {
             player.playWhenReady = true
         }
 
-        private class VlcMkvExtractor(private val delegate: MatroskaExtractor) : Extractor {
+                private class VlcMkvExtractor(private val delegate: MatroskaExtractor) : Extractor {
             @Volatile private var fileLength: Long = C.LENGTH_UNSET.toLong()
             @Volatile private var mkvDurationUs: Long = C.TIME_UNSET
             private var usingFallbackSeekMap = false
@@ -474,7 +474,6 @@ class PlayerEngine {
                             usingFallbackSeekMap = true
                             output.seekMap(object : SeekMap {
                                 override fun isSeekable(): Boolean = fileLength > 0
-                                // 🔥 CRASH FIX: mkvDurationUs use kiya hai taaki recursive call na ho
                                 override fun getDurationUs(): Long = mkvDurationUs
                                 override fun getSeekPoints(timeUs: Long): SeekMap.SeekPoints {
                                     val len = fileLength
@@ -501,15 +500,17 @@ class PlayerEngine {
 
                 if (pendingClusterSync) {
                     val clusterTimeUs = syncToNextClusterAndReadTime(input)
-                    if (clusterTimeUs != C.TIME_UNSET && mkvDurationUs > 0 && fileLength > 0 && seekAttempts < 3) {
+                    if (clusterTimeUs != C.TIME_UNSET && mkvDurationUs > 0 && fileLength > 0 && seekAttempts < 4) {
                         val bytesPerUs = fileLength.toDouble() / mkvDurationUs.toDouble()
-                        if (clusterTimeUs < targetSeekTimeUs - 3_000_000L ||
-                            clusterTimeUs > targetSeekTimeUs + 20_000_000L
+                        // Agar hum target time se piche hain, toh thoda aage jump karein taaki turant play ho
+                        if (clusterTimeUs < targetSeekTimeUs - 2_000_000L ||
+                            clusterTimeUs > targetSeekTimeUs + 25_000_000L
                         ) {
-                            val diffUs = (targetSeekTimeUs - clusterTimeUs) + 1_000_000L
+                            val diffUs = (targetSeekTimeUs - clusterTimeUs) + 3_000_000L
                             val newPos = (input.position + (diffUs * bytesPerUs).toLong())
                                 .coerceIn(4096L, fileLength - 65536L)
                             seekAttempts++
+                            delegate.seek(newPos, targetSeekTimeUs)
                             seekPosition.position = newPos
                             return Extractor.RESULT_SEEK
                         }
@@ -529,44 +530,51 @@ class PlayerEngine {
 
             override fun release() = delegate.release()
 
+            // 🔥 FIX: peekFully use kiya hai taaki network se pura 4KB block aaye aur Cluster miss na ho
             private fun syncToNextClusterAndReadTime(input: ExtractorInput): Long {
-                val buf = ByteArray(8192)
+                val chunkSize = 4096
+                val overlap = 64
+                val step = chunkSize - overlap
+                val buf = ByteArray(chunkSize)
                 var remainingScan = 4 * 1024 * 1024 // Max 4MB scan
+
                 while (remainingScan > 0) {
                     input.resetPeekPosition()
-                    val toPeek = minOf(buf.size, remainingScan)
-                    val peeked = try {
-                        input.peek(buf, 0, toPeek)
+                    val ok = try {
+                        input.peekFully(buf, 0, chunkSize, true)
                     } catch (e: Exception) {
-                        -1
+                        false
                     }
-                    if (peeked < 16) return C.TIME_UNSET
+                    if (!ok) return C.TIME_UNSET
 
-                    for (i in 0..peeked - 16) {
+                    for (i in 0..step) {
                         if (buf[i] == 0x1F.toByte() &&
                             buf[i + 1] == 0x43.toByte() &&
                             buf[i + 2] == 0xB6.toByte() &&
                             buf[i + 3] == 0x75.toByte()
                         ) {
-                            val clusterTimeUs = parseClusterTimeUs(buf, i, peeked)
+                            val clusterTimeUs = parseClusterTimeUs(buf, i, chunkSize)
                             if (clusterTimeUs != C.TIME_UNSET) {
+                                input.resetPeekPosition()
                                 if (i > 0) input.skipFully(i)
                                 input.resetPeekPosition()
                                 return clusterTimeUs
                             }
                         }
                     }
-                    val skip = (peeked - 16).coerceAtLeast(1)
+
+                    input.resetPeekPosition()
                     try {
-                        input.skipFully(skip)
+                        input.skipFully(step)
                     } catch (e: Exception) {
                         return C.TIME_UNSET
                     }
-                    remainingScan -= skip
+                    remainingScan -= step
                 }
                 return C.TIME_UNSET
             }
 
+            // 🔥 FIX: 0xBF (CRC-32) aur 0xEC (Void) support add kiya hai jo har MKV Cluster ke shuru me hota hai
             private fun parseClusterTimeUs(buf: ByteArray, clusterIdx: Int, limit: Int): Long {
                 var pos = clusterIdx + 4
                 if (pos >= limit) return C.TIME_UNSET
@@ -575,7 +583,7 @@ class PlayerEngine {
                 pos += sizeLen
 
                 var checks = 0
-                while (pos + 2 < limit && checks < 4) {
+                while (pos + 2 < limit && checks < 6) {
                     val elemId = buf[pos].toInt() and 0xFF
                     pos++
                     val lenByte = buf[pos].toInt() and 0xFF
@@ -584,7 +592,7 @@ class PlayerEngine {
                     val dataLen = readVintValue(buf, pos, vintLen).toInt()
                     pos += vintLen
 
-                    if (elemId == 0xE7) { // ID_TIMECODE
+                    if (elemId == 0xE7) { // ID_TIMECODE (Cluster Timestamp)
                         if (dataLen in 1..8 && pos + dataLen <= limit) {
                             var tc = 0L
                             for (k in 0 until dataLen) {
@@ -593,8 +601,9 @@ class PlayerEngine {
                             return tc * 1000L
                         }
                         return C.TIME_UNSET
-                    } else if (elemId == 0xAB || elemId == 0xA7) {
-                        if (dataLen < 0 || pos + dataLen > limit) return C.TIME_UNSET
+                    } else if (elemId == 0xBF || elemId == 0xEC || elemId == 0xAB || elemId == 0xA7) {
+                        // 0xBF = CRC-32, 0xEC = Void, 0xAB = PrevSize, 0xA7 = Position
+                        if (dataLen < 0 || dataLen > 256 || pos + dataLen > limit) return C.TIME_UNSET
                         pos += dataLen
                         checks++
                     } else {
