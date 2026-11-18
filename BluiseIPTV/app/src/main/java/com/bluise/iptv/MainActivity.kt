@@ -718,6 +718,21 @@ class MainActivity : AppCompatActivity() {
         tvCurrentTime = findViewById(R.id.tvCurrentTime)
         tvTotalDuration = findViewById(R.id.tvTotalDuration)
 
+                var isUserSeeking = false
+        var isTouchSeeking = false
+        var remoteSeekRunnable: Runnable? = null
+
+        // 🔥 TV Remote jab SeekBar par aayega toh SeekBar chamkega (Highlight hoga)
+        customSeekbar?.setOnFocusChangeListener { v, hasFocus ->
+            if (hasFocus) {
+                v.scaleY = 1.6f
+                v.setBackgroundColor(Color.parseColor("#33FFC107")) // Halka Yellow Glow
+            } else {
+                v.scaleY = 1.0f
+                v.setBackgroundColor(Color.TRANSPARENT)
+            }
+        }
+
         customSeekbar?.setOnSeekBarChangeListener(
             object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(
@@ -725,16 +740,38 @@ class MainActivity : AppCompatActivity() {
                     progress: Int,
                     fromUser: Boolean
                 ) {
-                    if (fromUser && player != null) {
-                        player?.seekTo(progress.toLong())
+                    if (fromUser) {
+                        tvCurrentTime?.text = formatTime(progress.toLong())
+
+                        // 🔥 Agar TV Remote (Left/Right button) se SeekBar ghuma rahe ho:
+                        if (!isTouchSeeking) {
+                            isUserSeeking = true
+                            handler.removeCallbacks(hideControlsRunnable)
+                            handler.postDelayed(hideControlsRunnable, 7000)
+
+                            // Remote se lagatar button dabane par 0.5 sec rukte hi video seek hoga
+                            remoteSeekRunnable?.let { handler.removeCallbacks(it) }
+                            remoteSeekRunnable = Runnable {
+                                player?.seekTo(progress.toLong())
+                                isUserSeeking = false
+                            }
+                            handler.postDelayed(remoteSeekRunnable!!, 500)
+                        }
                     }
                 }
 
                 override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                    isTouchSeeking = true
+                    isUserSeeking = true
                     handler.removeCallbacks(hideControlsRunnable)
                 }
 
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    isTouchSeeking = false
+                    isUserSeeking = false
+                    if (seekBar != null && player != null) {
+                        player?.seekTo(seekBar.progress.toLong())
+                    }
                     showControls()
                 }
             }
@@ -749,13 +786,18 @@ class MainActivity : AppCompatActivity() {
 
                     if (duration > 0 && duration != C.TIME_UNSET) {
                         customSeekbar?.max = duration.toInt()
-                        customSeekbar?.progress = position.toInt()
+                        customSeekbar?.keyProgressIncrement = 10_000 // 🔥 Remote ke 1 click par 10 sec aage/piche hoga
                         customSeekbar?.isEnabled = true
+                        customSeekbar?.isFocusable = TvManager.isTvMode
                         tvTotalDuration?.text = formatTime(duration)
-                        tvCurrentTime?.text = formatTime(position)
+                        if (!isUserSeeking) {
+                            customSeekbar?.progress = position.toInt()
+                            tvCurrentTime?.text = formatTime(position)
+                        }
                     } else {
-                                                customSeekbar?.progress = 0
+                        customSeekbar?.progress = 0
                         customSeekbar?.isEnabled = false
+                        customSeekbar?.isFocusable = false // Live TV par remote seekbar par nahi atakega
                         tvTotalDuration?.text = "00:00"
                         tvCurrentTime?.text = "00:00"
                     }
@@ -795,7 +837,7 @@ class MainActivity : AppCompatActivity() {
         )
         TvManager.applyFocusEffect(btnShowAll!!, btnShowGroups!!)
 
-        if (TvManager.isTvMode) {
+                if (TvManager.isTvMode) {
             btnScale?.nextFocusRightId = R.id.btnRew
             btnRew?.nextFocusLeftId = R.id.btnScale
             btnRew?.nextFocusRightId = R.id.btnPlay
@@ -806,6 +848,17 @@ class MainActivity : AppCompatActivity() {
             btnQuality?.nextFocusLeftId = R.id.btnFwd
             btnQuality?.nextFocusRightId = R.id.btnFullscreen
             btnFullscreen?.nextFocusLeftId = R.id.btnQuality
+
+            // 🔥 Buttons se DOWN dabane par focus SeekBar par jayega
+            btnScale?.nextFocusDownId = R.id.customSeekbar
+            btnRew?.nextFocusDownId = R.id.customSeekbar
+            btnPlay?.nextFocusDownId = R.id.customSeekbar
+            btnFwd?.nextFocusDownId = R.id.customSeekbar
+            btnQuality?.nextFocusDownId = R.id.customSeekbar
+            btnFullscreen?.nextFocusDownId = R.id.customSeekbar
+
+            // 🔥 SeekBar se UP dabane par wapas Play button par aayega
+            customSeekbar?.nextFocusUpId = R.id.btnPlay
         }
 
         playerView?.useController = false
@@ -1369,7 +1422,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun showControls() {
+        fun showControls() {
         controlsContainer?.visibility = View.VISIBLE
         debugText?.visibility = View.VISIBLE
 
@@ -1384,8 +1437,10 @@ class MainActivity : AppCompatActivity() {
         if (TvManager.isTvMode) {
             if (isFullscreen) {
                 val current = currentFocus
+                // 🔥 Yahan 'current != customSeekbar' add kiya hai
                 if (current != btnPlay && current != btnRew && current != btnFwd &&
-                    current != btnScale && current != btnQuality && current != btnFullscreen
+                    current != btnScale && current != btnQuality && current != btnFullscreen &&
+                    current != customSeekbar
                 ) {
                     btnPlay?.requestFocus()
                 }
