@@ -43,14 +43,6 @@ import java.net.URI
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import androidx.media3.extractor.Extractor
-import androidx.media3.extractor.ExtractorInput
-import androidx.media3.extractor.ExtractorOutput
-import androidx.media3.extractor.ExtractorsFactory
-import androidx.media3.extractor.PositionHolder
-import androidx.media3.extractor.SeekMap
-import androidx.media3.extractor.SeekPoint
-import androidx.media3.extractor.mkv.MatroskaExtractor
 
 @OptIn(UnstableApi::class)
 class PlayerEngine {
@@ -379,7 +371,7 @@ class PlayerEngine {
             }
         }
 
-                private fun startPlayback(
+        private fun startPlayback(
             context: Context,
             player: ExoPlayer,
             channel: Channel,
@@ -399,31 +391,13 @@ class PlayerEngine {
                 .setUserAgent(userAgent)
                 .setDefaultRequestProperties(headers)
 
-            // 🔥 FIX: Constant Bitrate Seeking + VLC-style MKV Cluster Seeking
-            val baseExtractorsFactory = DefaultExtractorsFactory()
-                .setConstantBitrateSeekingEnabled(true)
-                .setConstantBitrateSeekingAlwaysEnabled(true)
+            val extractorsFactory = DefaultExtractorsFactory()
+            .setConstantBitrateSeekingAlwaysEnabled(true)
+            .setConstantBitrateSeekingEnabled(true)
                 .setTsExtractorFlags(
                     DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                         DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
                 )
-
-            val extractorsFactory = object : ExtractorsFactory {
-                override fun createExtractors(): Array<Extractor> {
-                    return baseExtractorsFactory.createExtractors().map {
-                        if (it is MatroskaExtractor) VlcMkvExtractor(it) else it
-                    }.toTypedArray()
-                }
-
-                override fun createExtractors(
-                    uri: Uri,
-                    responseHeaders: MutableMap<String, MutableList<String>>
-                ): Array<Extractor> {
-                    return baseExtractorsFactory.createExtractors(uri, responseHeaders).map {
-                        if (it is MatroskaExtractor) VlcMkvExtractor(it) else it
-                    }.toTypedArray()
-                }
-            }
 
             val mediaSourceFactory = DefaultMediaSourceFactory(context, extractorsFactory)
                 .setDataSourceFactory(httpDataSourceFactory)
@@ -451,184 +425,6 @@ class PlayerEngine {
             player.setMediaSource(mediaSourceFactory.createMediaSource(mediaItemBuilder.build()))
             player.prepare()
             player.playWhenReady = true
-        }
-
-        /**
-         * 🔥 VLC-Style MKV Extractor Wrapper:
-         * Agar .mkv file me Cues (Seek Index) nahi hain aur MatroskaExtractor use Unseekable bolta hai,
-         * toh yeh wrapper VLC ki tarah File Size & Duration se byte-offset nikalta hai aur agle
-         * Matroska Cluster (0x1F43B675) par sync karke smooth seeking karwata hai.
-         */
-        private class VlcMkvExtractor(private val delegate: MatroskaExtractor) : Extractor {
-            @Volatile private var fileLength: Long = C.LENGTH_UNSET.toLong()
-            private var usingFallbackSeekMap = false
-            private var pendingClusterSync = false
-            private var targetSeekTimeUs: Long = 0L
-            private var durationUs: Long = C.TIME_UNSET
-            private var seekAttempts = 0
-
-            override fun sniff(input: ExtractorInput): Boolean = delegate.sniff(input)
-
-            override fun init(output: ExtractorOutput) {
-                delegate.init(object : ExtractorOutput {
-                    override fun track(id: Int, type: Int) = output.track(id, type)
-                    override fun endTracks() = output.endTracks()
-
-                    override fun seekMap(seekMap: SeekMap) {
-                        durationUs = seekMap.durationUs
-                        if (!seekMap.isSeekable && durationUs != C.TIME_UNSET && durationUs > 0) {
-                            usingFallbackSeekMap = true
-                            output.seekMap(object : SeekMap {
-                                override fun isSeekable(): Boolean = fileLength > 0
-                                override fun getDurationUs(): Long = durationUs
-                                override fun getSeekPoints(timeUs: Long): SeekMap.SeekPoints {
-                                    val len = fileLength
-                                    if (len <= 0) return SeekMap.SeekPoints(SeekPoint.START)
-                                    val ratio = (timeUs.toDouble() / durationUs.toDouble()).coerceIn(0.0, 0.995)
-                                    val byteOffset = (ratio * len).toLong().coerceAtLeast(4096L)
-                                    return SeekMap.SeekPoints(SeekPoint(timeUs, byteOffset))
-                                }
-                            })
-                        } else {
-                            output.seekMap(seekMap)
-                        }
-                    }
-                })
-            }
-
-            override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
-                if (input.length != C.LENGTH_UNSET.toLong() && input.length > 0) {
-                    fileLength = input.length
-                }
-
-                if (pendingClusterSync) {
-                    val clusterTimeUs = syncToNextClusterAndReadTime(input)
-                    if (clusterTimeUs != C.TIME_UNSET && durationUs > 0 && fileLength > 0 && seekAttempts < 4) {
-                        val bytesPerUs = fileLength.toDouble() / durationUs.toDouble()
-                        // Agar Cluster target time se piche hai, toh thoda aage jump karein taaki freeze na ho
-                        if (clusterTimeUs < targetSeekTimeUs - 2_000_000L) {
-                            val deficitUs = (targetSeekTimeUs - clusterTimeUs) + 2_000_000L
-                            val jumpBytes = (deficitUs * bytesPerUs).toLong().coerceAtLeast(512 * 1024L)
-                            if (input.position + jumpBytes < fileLength - 65536L) {
-                                seekAttempts++
-                                seekPosition.position = input.position + jumpBytes
-                                return Extractor.RESULT_SEEK
-                            }
-                        } else if (clusterTimeUs > targetSeekTimeUs + 30_000_000L && input.position > 1024 * 1024L) {
-                            // Agar Cluster target time se bahut jyada aage nikal gaya, toh thoda piche aayein
-                            val excessUs = (clusterTimeUs - targetSeekTimeUs) - 2_000_000L
-                            val backBytes = (excessUs * bytesPerUs).toLong().coerceAtLeast(512 * 1024L)
-                            seekAttempts++
-                            seekPosition.position = (input.position - backBytes).coerceAtLeast(4096L)
-                            return Extractor.RESULT_SEEK
-                        }
-                    }
-                    pendingClusterSync = false
-                }
-
-                return delegate.read(input, seekPosition)
-            }
-
-            override fun seek(position: Long, timeUs: Long) {
-                targetSeekTimeUs = timeUs
-                seekAttempts = 0
-                pendingClusterSync = usingFallbackSeekMap && (position > 0L || timeUs > 0L)
-                delegate.seek(position, timeUs)
-            }
-
-            override fun release() = delegate.release()
-
-            // Matroska Cluster ID (0x1F 0x43 0xB6 0x75) dhoondh kar input ko wahan align karta hai
-            private fun syncToNextClusterAndReadTime(input: ExtractorInput): Long {
-                val buf = ByteArray(8192)
-                var remainingScan = 8 * 1024 * 1024 // Max 8MB scan
-                while (remainingScan > 0) {
-                    input.resetPeekPosition()
-                    val toPeek = minOf(buf.size, remainingScan)
-                    val peeked = try {
-                        input.peek(buf, 0, toPeek)
-                    } catch (e: Exception) {
-                        -1
-                    }
-                    if (peeked < 16) return C.TIME_UNSET
-
-                    for (i in 0..peeked - 16) {
-                        if (buf[i] == 0x1F.toByte() &&
-                            buf[i + 1] == 0x43.toByte() &&
-                            buf[i + 2] == 0xB6.toByte() &&
-                            buf[i + 3] == 0x75.toByte()
-                        ) {
-                            val clusterTimeUs = parseClusterTimeUs(buf, i, peeked)
-                            if (clusterTimeUs != C.TIME_UNSET) {
-                                if (i > 0) input.skipFully(i)
-                                input.resetPeekPosition()
-                                return clusterTimeUs
-                            }
-                        }
-                    }
-                    val skip = (peeked - 16).coerceAtLeast(1)
-                    input.skipFully(skip)
-                    remainingScan -= skip
-                }
-                return C.TIME_UNSET
-            }
-
-            private fun parseClusterTimeUs(buf: ByteArray, clusterIdx: Int, limit: Int): Long {
-                var pos = clusterIdx + 4
-                if (pos >= limit) return C.TIME_UNSET
-                val sizeLen = getVintLength(buf[pos].toInt() and 0xFF)
-                if (sizeLen <= 0 || pos + sizeLen >= limit) return C.TIME_UNSET
-                pos += sizeLen
-
-                var checks = 0
-                while (pos + 2 < limit && checks < 4) {
-                    val elemId = buf[pos].toInt() and 0xFF
-                    pos++
-                    val lenByte = buf[pos].toInt() and 0xFF
-                    val vintLen = getVintLength(lenByte)
-                    if (vintLen <= 0 || pos + vintLen > limit) return C.TIME_UNSET
-                    val dataLen = readVintValue(buf, pos, vintLen).toInt()
-                    pos += vintLen
-
-                    if (elemId == 0xE7) { // ID_TIMECODE
-                        if (dataLen in 1..8 && pos + dataLen <= limit) {
-                            var tc = 0L
-                            for (k in 0 until dataLen) {
-                                tc = (tc shl 8) or (buf[pos + k].toLong() and 0xFFL)
-                            }
-                            return tc * 1000L
-                        }
-                        return C.TIME_UNSET
-                    } else if (elemId == 0xAB || elemId == 0xA7) {
-                        if (dataLen < 0 || pos + dataLen > limit) return C.TIME_UNSET
-                        pos += dataLen
-                        checks++
-                    } else {
-                        return C.TIME_UNSET
-                    }
-                }
-                return C.TIME_UNSET
-            }
-
-            private fun getVintLength(firstByte: Int): Int {
-                if (firstByte == 0) return -1
-                var mask = 0x80
-                var len = 1
-                while (len <= 8 && (firstByte and mask) == 0) {
-                    mask = mask shr 1
-                    len++
-                }
-                return if (len <= 8) len else -1
-            }
-
-            private fun readVintValue(buf: ByteArray, offset: Int, length: Int): Long {
-                val mask = (0xFF shr length)
-                var value = (buf[offset].toInt() and mask).toLong()
-                for (i in 1 until length) {
-                    value = (value shl 8) or (buf[offset + i].toLong() and 0xFFL)
-                }
-                return value
-            }
         }
 
         private fun buildHeaders(channel: Channel): Map<String, String> {
