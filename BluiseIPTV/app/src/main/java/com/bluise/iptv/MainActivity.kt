@@ -1705,7 +1705,10 @@ if (android.net.Uri.parse(m3uUrl).host == "custard-recast-moonlit.ngrok-free.dev
 
 val request = requestBuilder.build()
                         if (Thread.currentThread().isInterrupted) return@submit
-                        val response = PlayerEngine.okHttpClient.newCall(request).execute()
+                        val client = PlayerEngine.okHttpClient.newBuilder()
+    .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+    .build()
+val response = client.newCall(request).execute()
                         response.use { resp ->
                             val inputStream = resp.body?.byteStream() ?: throw Exception("Empty body")
                             IptvParser().parse(inputStream)
